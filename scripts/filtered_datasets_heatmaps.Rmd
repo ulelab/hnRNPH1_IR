@@ -1,0 +1,320 @@
+---
+title: "Filtered Datasets Heatmaps - max1 < 0.05 and pos2 70-79"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width = 16, fig.height = 12)
+```
+
+## Load Libraries
+
+```{r libraries}
+library(data.table)
+library(ggplot2)
+library(pheatmap)
+library(viridis)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(tibble)
+```
+
+## Load Filtered Datasets
+
+```{r load-filtered-data}
+# Load the filtered datasets
+max1_lt_005 <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.5/max1_lt_005_filtered.tsv", sep = "\t", header = TRUE)
+pos2_70_79 <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.5/pos2_70_79_filtered.tsv", sep = "\t", header = TRUE)
+
+cat("Dataset Summary:\n")
+cat("  max1_lt_005: ", nrow(max1_lt_005), " rows\n")
+cat("  pos2_70_79: ", nrow(pos2_70_79), " rows\n")
+cat("  Unique species in max1_lt_005: ", length(unique(max1_lt_005$species)), "\n")
+cat("  Unique species in pos2_70_79: ", length(unique(pos2_70_79$species)), "\n")
+cat("  Unique decoyIDs in max1_lt_005: ", length(unique(max1_lt_005$decoyID)), "\n")
+cat("  Unique decoyIDs in pos2_70_79: ", length(unique(pos2_70_79$decoyID)), "\n")
+```
+
+## Species Overlap Analysis
+
+```{r species-overlap}
+# Count occurrences per species in each dataset
+species_max1 <- max1_lt_005 %>%
+  count(species, name = "max1_count") %>%
+  arrange(desc(max1_count))
+
+species_pos2 <- pos2_70_79 %>%
+  count(species, name = "pos2_count") %>%
+  arrange(desc(pos2_count))
+
+# Find species present in both datasets
+species_both <- inner_join(species_max1, species_pos2, by = "species") %>%
+  arrange(desc(max1_count + pos2_count))
+
+cat("\nSpecies found in BOTH datasets:\n")
+cat("  Total species in both: ", nrow(species_both), "\n")
+cat("\nTop 20 species by total occurrences:\n")
+print(head(species_both, 20))
+
+# Create full comparison table
+all_species <- full_join(species_max1, species_pos2, by = "species") %>%
+  mutate(
+    max1_count = ifelse(is.na(max1_count), 0, max1_count),
+    pos2_count = ifelse(is.na(pos2_count), 0, pos2_count),
+    in_both = !is.na(max1_count) & !is.na(pos2_count),
+    total_count = max1_count + pos2_count
+  ) %>%
+  arrange(desc(total_count))
+
+cat("\nComplete species comparison table:\n")
+print(all_species)
+```
+
+## Load Species Order and Mapping
+
+```{r load-species-order}
+# Load species order from spliceai_heatmap.Rmd approach
+species_order_file <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/data/Newickspeciesorder.txt", header = FALSE, col.names = "tree_name")
+species_mapping <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/tree_to_clade_mapping.tsv", sep = "\t", header = TRUE)
+ordered_species <- merge(species_order_file, species_mapping, by = "tree_name", all.x = TRUE, sort = FALSE)
+ordered_species_ids <- ordered_species$species_id[!is.na(ordered_species$species_id)]
+
+# Map species IDs to common names
+species_id_to_common <- setNames(species_mapping$matched_common_name, species_mapping$species_id)
+```
+
+## Heatmap 1: max1 < 0.05 Dataset (showing max1 values)
+
+```{r heatmap-max1-lt-005}
+# Prepare matrix for heatmap: decoy IDs as columns, species as rows
+# Extract max1 values for each decoy-species pair
+max1_matrix_data <- max1_lt_005 %>%
+  select(decoyID, species, max1) %>%
+  pivot_wider(names_from = decoyID, values_from = max1)
+
+# Set species as row names and convert to matrix
+max1_matrix <- as.matrix(max1_matrix_data[, -1]) # Exclude species column
+rownames(max1_matrix) <- max1_matrix_data$species
+
+# Replace NA with -1 for visualization (missing data)
+max1_matrix[is.na(max1_matrix)] <- -1
+
+# Reorder rows (species) to match Newick order
+available_species_max1 <- rownames(max1_matrix)
+ordered_available_max1 <- intersect(ordered_species_ids, available_species_max1)
+other_species_max1 <- setdiff(available_species_max1, ordered_available_max1)
+final_species_order_max1 <- c(ordered_available_max1, other_species_max1)
+max1_matrix <- max1_matrix[final_species_order_max1, , drop = FALSE]
+
+# Map species IDs to common names for row labels
+current_rownames_max1 <- rownames(max1_matrix)
+common_names_max1 <- ifelse(current_rownames_max1 %in% names(species_id_to_common),
+  species_id_to_common[current_rownames_max1],
+  current_rownames_max1
+)
+
+# Create annotation for species present in both datasets (before renaming rows)
+# Use original species IDs for matching
+annotation_row_max1 <- data.frame(
+  InBoth = ifelse(current_rownames_max1 %in% species_both$species, "Yes", "No"),
+  row.names = current_rownames_max1
+)
+
+# Create annotation colors
+ann_colors_max1 <- list(
+  InBoth = c("Yes" = "red", "No" = "lightgrey")
+)
+
+# Rename rows to common names AFTER creating annotation
+rownames(max1_matrix) <- common_names_max1
+rownames(annotation_row_max1) <- common_names_max1
+
+cat("\nMax1 < 0.05 Heatmap Matrix:\n")
+cat("  Dimensions:", dim(max1_matrix), "\n")
+cat("  Species (rows):", nrow(max1_matrix), "\n")
+cat("  Decoy IDs (columns):", ncol(max1_matrix), "\n")
+cat("  Value range:", min(max1_matrix), "to", max(max1_matrix), "\n")
+cat("  -1 values (missing):", sum(max1_matrix == -1), "\n")
+
+# Create color palette: grey for -1, viridis for 0-0.05
+n_colors_max1 <- 100
+color_gradient_max1 <- c("grey70", viridis(n_colors_max1))
+
+# Create heatmap
+pheatmap(
+  max1_matrix,
+  color = color_gradient_max1,
+  breaks = c(-1.5, seq(-0.5, 0.05, length.out = n_colors_max1 + 1)),
+  cluster_rows = FALSE, # Keep species in Newick order
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = FALSE, # Too many decoy IDs to show
+  annotation_row = annotation_row_max1,
+  annotation_colors = ann_colors_max1,
+  main = "Heatmap of max1 values (max1 < 0.05 dataset) - Species Ordered by Newick Tree",
+  fontsize_row = 8,
+  fontsize_col = 6,
+  border_color = NA,
+  na_col = "grey70",
+  legend_breaks = c(-1, 0, 0.01, 0.02, 0.03, 0.04, 0.05),
+  legend_labels = c("Missing", "0.0", "0.01", "0.02", "0.03", "0.04", "0.05")
+)
+```
+
+## Heatmap 2: pos2 70-79 Dataset (showing max2 values)
+
+```{r heatmap-pos2-70-79}
+# Prepare matrix for heatmap: decoy IDs as columns, species as rows
+# Extract max2 values for each decoy-species pair
+max2_matrix_data <- pos2_70_79 %>%
+  select(decoyID, species, max2) %>%
+  pivot_wider(names_from = decoyID, values_from = max2)
+
+# Set species as row names and convert to matrix
+max2_matrix <- as.matrix(max2_matrix_data[, -1]) # Exclude species column
+rownames(max2_matrix) <- max2_matrix_data$species
+
+# Replace NA with -1 for visualization (missing data)
+max2_matrix[is.na(max2_matrix)] <- -1
+
+# Reorder rows (species) to match Newick order
+available_species_max2 <- rownames(max2_matrix)
+ordered_available_max2 <- intersect(ordered_species_ids, available_species_max2)
+other_species_max2 <- setdiff(available_species_max2, ordered_available_max2)
+final_species_order_max2 <- c(ordered_available_max2, other_species_max2)
+max2_matrix <- max2_matrix[final_species_order_max2, , drop = FALSE]
+
+# Map species IDs to common names for row labels
+current_rownames_max2 <- rownames(max2_matrix)
+common_names_max2 <- ifelse(current_rownames_max2 %in% names(species_id_to_common),
+  species_id_to_common[current_rownames_max2],
+  current_rownames_max2
+)
+
+# Create annotation for species present in both datasets (before renaming rows)
+# Use original species IDs for matching
+annotation_row_max2 <- data.frame(
+  InBoth = ifelse(current_rownames_max2 %in% species_both$species, "Yes", "No"),
+  row.names = current_rownames_max2
+)
+
+# Create annotation colors
+ann_colors_max2 <- list(
+  InBoth = c("Yes" = "red", "No" = "lightgrey")
+)
+
+# Rename rows to common names AFTER creating annotation
+rownames(max2_matrix) <- common_names_max2
+rownames(annotation_row_max2) <- common_names_max2
+
+cat("\nPos2 70-79 Heatmap Matrix (showing max2 values):\n")
+cat("  Dimensions:", dim(max2_matrix), "\n")
+cat("  Species (rows):", nrow(max2_matrix), "\n")
+cat("  Decoy IDs (columns):", ncol(max2_matrix), "\n")
+cat("  Value range:", min(max2_matrix), "to", max(max2_matrix), "\n")
+cat("  -1 values (missing):", sum(max2_matrix == -1), "\n")
+
+# Create color palette: grey for -1, viridis for 0-1
+n_colors_max2 <- 100
+color_gradient_max2 <- c("grey70", viridis(n_colors_max2))
+
+# Create heatmap
+pheatmap(
+  max2_matrix,
+  color = color_gradient_max2,
+  breaks = c(-1.5, seq(-0.5, 1, length.out = n_colors_max2 + 1)),
+  cluster_rows = FALSE, # Keep species in Newick order
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = FALSE, # Too many decoy IDs to show
+  annotation_row = annotation_row_max2,
+  annotation_colors = ann_colors_max2,
+  main = "Heatmap of max2 values (pos2 70-79 dataset) - Species Ordered by Newick Tree",
+  fontsize_row = 8,
+  fontsize_col = 6,
+  border_color = NA,
+  na_col = "grey70",
+  legend_breaks = c(-1, 0, 0.25, 0.5, 0.75, 1),
+  legend_labels = c("Missing", "0.0", "0.25", "0.5", "0.75", "1.0")
+)
+```
+
+## Histogram: max2 Values in pos2 70-79 Dataset
+
+```{r histogram-max2-pos2-70-79}
+# Create histogram of max2 values for pos2_70_79 dataset
+p_hist_max2 <- ggplot(pos2_70_79, aes(x = max2)) +
+  geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7, color = "black") +
+  labs(
+    title = "Distribution of max2 Values (pos2 70-79 Dataset)",
+    subtitle = paste("Total data points:", nrow(pos2_70_79)),
+    x = "max2 (SpliceAI score)",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12)
+  ) +
+  # Add vertical lines for common thresholds
+  geom_vline(xintercept = 0.1, linetype = "dashed", color = "red", linewidth = 1) +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "orange", linewidth = 1) +
+  geom_vline(xintercept = 0.7, linetype = "dashed", color = "blue", linewidth = 1) +
+  annotate("text",
+    x = 0.1, y = Inf, label = "0.1",
+    vjust = 1.5, hjust = -0.1, color = "red", fontface = "bold"
+  ) +
+  annotate("text",
+    x = 0.5, y = Inf, label = "0.5",
+    vjust = 1.5, hjust = -0.1, color = "orange", fontface = "bold"
+  ) +
+  annotate("text",
+    x = 0.7, y = Inf, label = "0.7",
+    vjust = 1.5, hjust = -0.1, color = "blue", fontface = "bold"
+  )
+
+print(p_hist_max2)
+
+# Summary statistics
+cat("\nMax2 Value Summary Statistics (pos2 70-79 dataset):\n")
+cat("  Mean:", sprintf("%.4f", mean(pos2_70_79$max2, na.rm = TRUE)), "\n")
+cat("  Median:", sprintf("%.4f", median(pos2_70_79$max2, na.rm = TRUE)), "\n")
+cat("  SD:", sprintf("%.4f", sd(pos2_70_79$max2, na.rm = TRUE)), "\n")
+cat("  Min:", sprintf("%.4f", min(pos2_70_79$max2, na.rm = TRUE)), "\n")
+cat("  Max:", sprintf("%.4f", max(pos2_70_79$max2, na.rm = TRUE)), "\n")
+cat(
+  "  Values > 0.1:", sum(pos2_70_79$max2 > 0.1, na.rm = TRUE),
+  sprintf("(%.2f%%)\n", 100 * sum(pos2_70_79$max2 > 0.1, na.rm = TRUE) / nrow(pos2_70_79))
+)
+cat(
+  "  Values > 0.5:", sum(pos2_70_79$max2 > 0.5, na.rm = TRUE),
+  sprintf("(%.2f%%)\n", 100 * sum(pos2_70_79$max2 > 0.5, na.rm = TRUE) / nrow(pos2_70_79))
+)
+cat(
+  "  Values > 0.7:", sum(pos2_70_79$max2 > 0.7, na.rm = TRUE),
+  sprintf("(%.2f%%)\n", 100 * sum(pos2_70_79$max2 > 0.7, na.rm = TRUE) / nrow(pos2_70_79))
+)
+cat(
+  "  Values > 0.8:", sum(pos2_70_79$max2 > 0.8, na.rm = TRUE),
+  sprintf("(%.2f%%)\n", 100 * sum(pos2_70_79$max2 > 0.8, na.rm = TRUE) / nrow(pos2_70_79))
+)
+```
+
+## Summary: Species Found in Both Datasets
+
+```{r species-both-summary}
+cat("\n")
+cat(paste0(rep("=", 80), collapse = ""), "\n")
+cat("SPECIES FOUND IN BOTH DATASETS\n")
+cat(paste0(rep("=", 80), collapse = ""), "\n\n")
+
+cat("Total species in max1 < 0.05 dataset: ", nrow(species_max1), "\n")
+cat("Total species in pos2 70-79 dataset: ", nrow(species_pos2), "\n")
+cat("Species found in BOTH datasets: ", nrow(species_both), "\n")
+cat("Species only in max1 < 0.05: ", nrow(species_max1) - nrow(species_both), "\n")
+cat("Species only in pos2 70-79: ", nrow(species_pos2) - nrow(species_both), "\n")
+
+cat("\nSpecies in both datasets (sorted by total occurrences):\n")
+print(species_both)
+```

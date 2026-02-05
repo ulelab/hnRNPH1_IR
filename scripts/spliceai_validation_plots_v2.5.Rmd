@@ -1,0 +1,1052 @@
+---
+title: "SpliceAI Validation Plots - Position and Score Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width = 16, fig.height = 12)
+```
+
+## Load Libraries
+
+```{r libraries}
+library(data.table)
+library(ggplot2)
+library(pheatmap)
+library(viridis)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(tibble)
+library(GenomicRanges)
+```
+
+## QC: Validate BED File Coordinates
+
+```{r qc-bed-coordinates}
+# Read the BED file
+bed_data <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/data/DecoysInConservedGenes50thpercentilev2.bed", 
+                  sep = "\t", 
+                  header = FALSE,
+                  col.names = c("chr", "start", "end", "id", "score", "strand"))
+
+cat("BED file loaded:\n")
+cat("  Total records:", nrow(bed_data), "\n")
+
+# Extract coordinate after underscore from column 4 (id)
+bed_data$coord_from_id <- as.integer(str_extract(bed_data$id, "(?<=_)\\d+$"))
+
+# Check for any missing coordinates
+missing_coords <- sum(is.na(bed_data$coord_from_id))
+if (missing_coords > 0) {
+  cat("  WARNING: ", missing_coords, " records have missing coordinates in ID\n")
+}
+
+# Create GenomicRanges object for the BED intervals
+bed_gr <- GRanges(
+  seqnames = bed_data$chr,
+  ranges = IRanges(start = bed_data$start, end = bed_data$end),
+  strand = bed_data$strand,
+  id = bed_data$id,
+  coord_from_id = bed_data$coord_from_id
+)
+
+# Check if coordinate from ID falls within the start-end range
+bed_data$coord_in_range <- bed_data$coord_from_id >= bed_data$start & 
+                           bed_data$coord_from_id <= bed_data$end
+
+# Summary statistics
+total_records <- nrow(bed_data)
+
+cat("  Total records:", total_records, "\n")
+```
+
+## Load and Parse Data
+
+```{r load-data}
+# Read the TSV file
+spliceai_data <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.5/all_spliceai_scores_v2.5.tsv", sep = "\t", header = TRUE)
+
+cat("Dataset loaded:\n")
+cat("  Number of decoy IDs:", nrow(spliceai_data), "\n")
+cat("  Number of species columns:", ncol(spliceai_data) - 1, "\n")
+
+# Function to parse [max1][pos1][max2][pos2][d] format (v2.5)
+parse_score_format <- function(value) {
+  # Match pattern: [number][number][number][number][number]
+  match_result <- str_match(value, "\\[([\\d.-]+)\\]\\[(\\d+)\\]\\[([\\d.-]+)\\]\\[(\\d+)\\]\\[([\\d.-]+)\\]")
+  if (is.na(match_result[1])) {
+    return(list(max1 = NA, pos1 = NA, max2 = NA, pos2 = NA, d = NA))
+  }
+  return(list(
+    max1 = as.numeric(match_result[2]),
+    pos1 = as.integer(match_result[3]),
+    max2 = as.numeric(match_result[4]),
+    pos2 = as.integer(match_result[5]),
+    d = as.numeric(match_result[6])
+  ))
+}
+
+# Extract decoy IDs
+decoy_ids <- spliceai_data$decoyID
+
+# Get species columns (all except decoyID)
+species_cols <- setdiff(names(spliceai_data), "decoyID")
+
+cat("\nParsing score data for all species...\n")
+
+# Parse all data into long format
+parsed_data_list <- list()
+
+for (species in species_cols) {
+  parsed_scores <- lapply(spliceai_data[[species]], parse_score_format)
+  
+  # Convert to data.table
+  species_data <- data.table(
+    decoyID = decoy_ids,
+    species = species,
+    max1 = sapply(parsed_scores, function(x) x$max1),
+    pos1 = sapply(parsed_scores, function(x) x$pos1),
+    max2 = sapply(parsed_scores, function(x) x$max2),
+    pos2 = sapply(parsed_scores, function(x) x$pos2),
+    d = sapply(parsed_scores, function(x) x$d)
+  )
+  
+  parsed_data_list[[species]] <- species_data
+}
+
+# Combine all species data
+all_data <- rbindlist(parsed_data_list)
+
+# Check for duplicate decoy IDs in the original dataset
+duplicate_decoy_ids <- spliceai_data$decoyID[duplicated(spliceai_data$decoyID)]
+if (length(duplicate_decoy_ids) > 0) {
+  cat("\n⚠️  WARNING: Found duplicate decoy IDs in the dataset:\n")
+  cat("  Number of duplicates:", length(duplicate_decoy_ids), "\n")
+  cat("  Duplicate decoy IDs:\n")
+  for (dup_id in duplicate_decoy_ids) {
+    cat(sprintf("    %s\n", dup_id))
+  }
+  cat("\n  These should be checked in the original BED file.\n")
+} else {
+  cat("\n✓ No duplicate decoy IDs found in the dataset.\n")
+}
+
+# Filter out -1 values for analysis
+all_data_valid <- all_data[max1 != -1.0 & pos1 != -1 & max2 != -1.0 & pos2 != -1]
+
+cat("\nData parsing complete:\n")
+cat("  Total data points:", nrow(all_data), "\n")
+cat("  Valid data points (excluding -1):", nrow(all_data_valid), "\n")
+cat("  Unique decoy IDs:", length(unique(all_data_valid$decoyID)), "\n")
+cat("  Unique species:", length(unique(all_data_valid$species)), "\n")
+
+# Extract and save filtered datasets
+# 1. Extract rows where pos2 is between 70-79
+pos2_70_79 <- all_data_valid[pos2 >= 70 & pos2 <= 79]
+cat("\nExtracting rows where pos2 is between 70-79:\n")
+cat("  Number of rows:", nrow(pos2_70_79), "\n")
+fwrite(pos2_70_79, 
+       file = "/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.5/pos2_70_79_filtered.tsv",
+       sep = "\t")
+cat("  Saved to: pos2_70_79_filtered.tsv\n")
+
+# 2. Extract rows where max1 is less than 0.05
+max1_lt_005 <- all_data_valid[max1 < 0.05]
+cat("\nExtracting rows where max1 < 0.05:\n")
+cat("  Number of rows:", nrow(max1_lt_005), "\n")
+fwrite(max1_lt_005,
+       file = "/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.5/max1_lt_005_filtered.tsv",
+       sep = "\t")
+cat("  Saved to: max1_lt_005_filtered.tsv\n")
+```
+
+## 1. Histogram: Position Comparison (pos1 vs pos2)
+
+```{r histogram-pos1-pos2}
+# Create histogram comparing pos1 and pos2
+pos_data_long <- all_data_valid %>%
+  select(decoyID, species, pos1, pos2) %>%
+  pivot_longer(cols = c(pos1, pos2), 
+               names_to = "position_type", 
+               values_to = "position") %>%
+  filter(!is.na(position))
+
+p_hist_pos <- ggplot(pos_data_long, aes(x = position, fill = position_type)) +
+  geom_histogram(alpha = 0.6, bins = 100, position = "identity") +
+  scale_fill_manual(values = c("pos1" = "steelblue", "pos2" = "salmon"),
+                    labels = c("pos1", "pos2"),
+                    name = "Position Type") +
+  scale_x_log10() +
+  labs(title = "Distribution of pos1 and pos2 Values (Log Scale)",
+       subtitle = "Comparison of canonical splice site position (pos1) vs secondary position (pos2)",
+       x = "Position (nucleotides from sequence start, log10 scale)",
+       y = "Frequency",
+       caption = paste("Total data points:", nrow(pos_data_long))) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12),
+        legend.position = "right") +
+  # Add vertical line at position 50 (expected canonical splice site)
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red", linewidth = 1) +
+  annotate("text", x = 50, y = Inf, label = "Expected pos1 (~50)", 
+           vjust = 1.5, hjust = 0, color = "red", fontface = "bold")
+
+print(p_hist_pos)
+
+# Summary statistics
+cat("\nPosition Summary Statistics:\n")
+cat("  pos1 - Mean:", mean(all_data_valid$pos1, na.rm = TRUE), 
+    "| Median:", median(all_data_valid$pos1, na.rm = TRUE), 
+    "| % < 55:", round(100 * sum(all_data_valid$pos1 < 55, na.rm = TRUE) / nrow(all_data_valid), 2), "%\n")
+cat("  pos2 - Mean:", mean(all_data_valid$pos2, na.rm = TRUE), 
+    "| Median:", median(all_data_valid$pos2, na.rm = TRUE),
+    "| % < 55:", round(100 * sum(all_data_valid$pos2 < 55, na.rm = TRUE) / nrow(all_data_valid), 2), "%\n")
+```
+
+## 2. Scatterplot: max2 > max1 Cases (max2 vs pos2)
+
+```{r scatterplot-max2-gt-max1}
+# Filter for cases where max2 > max1
+max2_gt_max1_data <- all_data_valid %>%
+  filter(max2 > max1) %>%
+  filter(!is.na(max2) & !is.na(pos2))
+
+cat("\nCases where max2 > max1:\n")
+cat("  Total cases:", nrow(max2_gt_max1_data), "\n")
+cat("  Percentage of all valid data:", 
+    round(100 * nrow(max2_gt_max1_data) / nrow(all_data_valid), 2), "%\n")
+
+p_scatter_max2 <- ggplot(max2_gt_max1_data, aes(x = pos2, y = max2)) +
+  geom_point(alpha = 0.3, size = 0.5, color = "darkgreen") +
+  geom_smooth(method = "loess", se = TRUE, color = "red", linewidth = 1.5) +
+  scale_x_log10() +
+  labs(title = "Scatterplot: max2 vs pos2 (when max2 > max1, Log Scale)",
+       subtitle = paste("Cases where secondary score exceeds primary score (n =", 
+                       format(nrow(max2_gt_max1_data), big.mark = ","), ")"),
+       x = "pos2 (position of max2, log10 scale)",
+       y = "max2 (SpliceAI score)",
+       caption = "Red line shows LOESS smoothing trend") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  # Add reference lines
+  geom_hline(yintercept = 0.1, linetype = "dashed", color = "blue", alpha = 0.5) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "blue", alpha = 0.5) +
+  annotate("text", x = Inf, y = 0.1, label = "max2 = 0.1", 
+           hjust = 1.1, vjust = -0.5, color = "blue", size = 3) +
+  annotate("text", x = Inf, y = 0.5, label = "max2 = 0.5", 
+           hjust = 1.1, vjust = -0.5, color = "blue", size = 3)
+
+print(p_scatter_max2)
+```
+
+## 3. Density Plots (Bell Curves) for All Four Statistics
+
+```{r density-plots-all-stats}
+# Prepare data for density plots
+density_data <- all_data_valid %>%
+  select(max1, pos1, max2, pos2) %>%
+  pivot_longer(cols = everything(), 
+               names_to = "statistic", 
+               values_to = "value") %>%
+  filter(!is.na(value))
+
+# Create separate plots for pos1/pos2 with log scale and max1/max2 without log scale
+density_data_pos <- density_data %>% filter(statistic %in% c("pos1", "pos2"))
+density_data_score <- density_data %>% filter(statistic %in% c("max1", "max2"))
+
+p_density_pos <- ggplot(density_data_pos, aes(x = value, fill = statistic)) +
+  geom_density(alpha = 0.6, linewidth = 1) +
+  facet_wrap(~ statistic, scales = "free", ncol = 2,
+             labeller = labeller(statistic = c(
+               "pos1" = "pos1 (Position of max1, Log Scale)",
+               "pos2" = "pos2 (Position of max2, Log Scale)"
+             ))) +
+  scale_fill_viridis_d(option = "plasma", name = "Statistic") +
+  scale_x_log10() +
+  labs(title = "Distribution (Density) of Position Statistics (Log Scale)",
+       subtitle = "Bell curves showing the distribution of pos1 and pos2",
+       x = "Value (log10 scale)",
+       y = "Density") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12),
+        strip.text = element_text(size = 11, face = "bold"),
+        legend.position = "none")
+
+p_density_score <- ggplot(density_data_score, aes(x = value, fill = statistic)) +
+  geom_density(alpha = 0.6, linewidth = 1) +
+  facet_wrap(~ statistic, scales = "free", ncol = 2,
+             labeller = labeller(statistic = c(
+               "max1" = "max1 (Primary SpliceAI Score)",
+               "max2" = "max2 (Secondary SpliceAI Score)"
+             ))) +
+  scale_fill_viridis_d(option = "plasma", name = "Statistic") +
+  labs(title = "Distribution (Density) of Score Statistics",
+       subtitle = "Bell curves showing the distribution of max1 and max2",
+       x = "Value",
+       y = "Density") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12),
+        strip.text = element_text(size = 11, face = "bold"),
+        legend.position = "none")
+
+print(p_density_pos)
+print(p_density_score)
+
+# Summary statistics for each
+cat("\nSummary Statistics by Statistic:\n")
+for (stat in c("max1", "pos1", "max2", "pos2")) {
+  stat_data <- density_data %>% filter(statistic == stat)
+  cat(sprintf("  %s: Mean = %.3f, Median = %.3f, SD = %.3f, Range = [%.3f, %.3f]\n",
+              stat,
+              mean(stat_data$value, na.rm = TRUE),
+              median(stat_data$value, na.rm = TRUE),
+              sd(stat_data$value, na.rm = TRUE),
+              min(stat_data$value, na.rm = TRUE),
+              max(stat_data$value, na.rm = TRUE)))
+}
+```
+
+## 4. Heatmap of max2 Values
+
+```{r heatmap-max2}
+# Load species order from spliceai_heatmap.Rmd approach
+# Read species order and mapping
+species_order_file <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/data/Newickspeciesorder.txt", header = FALSE, col.names = "tree_name")
+species_mapping <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/tree_to_clade_mapping.tsv", sep = "\t", header = TRUE)
+ordered_species <- merge(species_order_file, species_mapping, by = "tree_name", all.x = TRUE, sort = FALSE)
+ordered_species_ids <- ordered_species$species_id[!is.na(ordered_species$species_id)]
+
+# Map species IDs to common names
+species_id_to_common <- setNames(species_mapping$matched_common_name, species_mapping$species_id)
+
+# Prepare matrix for heatmap: decoy IDs as columns, species as rows
+# Extract max2 values for each decoy-species pair
+max2_matrix_data <- all_data_valid %>%
+  select(decoyID, species, max2) %>%
+  pivot_wider(names_from = decoyID, values_from = max2)
+
+# Set species as row names and convert to matrix
+max2_matrix <- as.matrix(max2_matrix_data[, -1])  # Exclude species column
+rownames(max2_matrix) <- max2_matrix_data$species
+
+# Replace NA with -1 for visualization (missing data)
+max2_matrix[is.na(max2_matrix)] <- -1
+
+# Get d values for each decoy-species pair (for filtering)
+d_matrix_data <- all_data_valid %>%
+  select(decoyID, species, d) %>%
+  pivot_wider(names_from = decoyID, values_from = d)
+d_matrix <- as.matrix(d_matrix_data[, -1])
+rownames(d_matrix) <- d_matrix_data$species
+
+# Replace NA in d_matrix with 0 (no length change)
+d_matrix[is.na(d_matrix)] <- 0
+
+# Reorder rows (species) to match Newick order from spliceai_heatmap.Rmd
+# First, match available species to ordered list
+available_species <- rownames(max2_matrix)
+ordered_available <- intersect(ordered_species_ids, available_species)
+# Add any species not in ordered list at the end
+other_species <- setdiff(available_species, ordered_available)
+final_species_order <- c(ordered_available, other_species)
+max2_matrix <- max2_matrix[final_species_order, , drop = FALSE]
+
+# Map species IDs to common names for row labels
+current_rownames <- rownames(max2_matrix)
+common_names <- ifelse(current_rownames %in% names(species_id_to_common),
+  species_id_to_common[current_rownames],
+  current_rownames
+)
+rownames(max2_matrix) <- common_names
+
+cat("\nMax2 Heatmap Matrix:\n")
+cat("  Dimensions:", dim(max2_matrix), "\n")
+cat("  Species (rows):", nrow(max2_matrix), "\n")
+cat("  Decoy IDs (columns):", ncol(max2_matrix), "\n")
+cat("  Value range:", min(max2_matrix), "to", max(max2_matrix), "\n")
+cat("  -1 values (missing):", sum(max2_matrix == -1), "\n")
+
+# Sanity check: Verify target decoy exists in matrix
+# Try both possible variations of the decoy ID
+target_decoy_variants <- c("HNRNPH_1179620582", "HNRNPH1_179620582", "HNRNPH1_1179620582")
+target_decoy <- NULL
+for (variant in target_decoy_variants) {
+  if (variant %in% colnames(max2_matrix)) {
+    target_decoy <- variant
+    cat("\n✓ Sanity check PASSED: Target decoy '", target_decoy, "' found in matrix\n", sep = "")
+    break
+  }
+}
+
+if (is.null(target_decoy)) {
+  cat("\n⚠️  WARNING: Target decoy not found in matrix!\n")
+  cat("  Searched for:", paste(target_decoy_variants, collapse = ", "), "\n")
+  cat("  First 10 decoy IDs in matrix:", paste(head(colnames(max2_matrix), 10), collapse = ", "), "\n")
+  cat("  Checking for partial matches...\n")
+  # Check for partial matches
+  for (variant in target_decoy_variants) {
+    partial_matches <- grep(variant, colnames(max2_matrix), value = TRUE)
+    if (length(partial_matches) > 0) {
+      cat("  Found partial matches for '", variant, "': ", paste(partial_matches, collapse = ", "), "\n", sep = "")
+    }
+  }
+  # Check for HNRNPH decoys in general
+  hnrnph_matches <- grep("^HNRNPH", colnames(max2_matrix), value = TRUE)
+  if (length(hnrnph_matches) > 0) {
+    cat("  Found ", length(hnrnph_matches), " decoy IDs starting with 'HNRNPH':\n", sep = "")
+    cat("    ", paste(head(hnrnph_matches, 20), collapse = ", "), "\n", sep = "")
+    if (length(hnrnph_matches) > 20) {
+      cat("    ... and ", length(hnrnph_matches) - 20, " more\n", sep = "")
+    }
+  }
+  stop("Target decoy not found. Please verify the decoy ID in the data.")
+}
+
+# Create custom color palette with 4 breaks
+# Break 1: 0 - 0.1: dark purple to cyan
+# Break 2: 0.1 - 0.3: cyan to dark green
+# Break 3: 0.3 - 0.7: dark green to bright orange
+# Break 4: 0.7 - 1.0: bright orange to hot pink
+create_custom_palette <- function(n_colors_per_break = 25) {
+  # Break 1: dark purple (#4B0082) to cyan (#00FFFF)
+  break1 <- colorRampPalette(c("#4B0082", "#00FFFF"))(n_colors_per_break)
+  
+  # Break 2: cyan (#00FFFF) to dark green (#006400)
+  break2 <- colorRampPalette(c("#00FFFF", "#006400"))(n_colors_per_break)
+  
+  # Break 3: dark green (#006400) to bright orange (#FF6600)
+  break3 <- colorRampPalette(c("#006400", "#FF6600"))(n_colors_per_break)
+  
+  # Break 4: bright orange (#FF6600) to hot pink (#FF1493)
+  break4 <- colorRampPalette(c("#FF6600", "#FF1493"))(n_colors_per_break)
+  
+  # Combine all breaks
+  c("grey70", break1, break2, break3, break4)
+}
+
+# Create column annotation for target decoy
+annotation_col <- data.frame(
+  HNRNPH_target = ifelse(colnames(max2_matrix) == target_decoy, "Yes", "No"),
+  row.names = colnames(max2_matrix)
+)
+
+# Verify annotation was created correctly
+target_count <- sum(annotation_col$HNRNPH_target == "Yes")
+cat("  Annotation created: ", target_count, " column(s) marked as target decoy\n", sep = "")
+
+# Create annotation colors
+ann_colors <- list(
+  HNRNPH_target = c("Yes" = "red", "No" = "white")
+)
+
+# Create custom color palette
+custom_palette <- create_custom_palette(n_colors_per_break = 25)
+n_total_colors <- length(custom_palette) - 1  # Exclude grey
+
+# Create breaks for the color palette
+# Breaks: -1.5 to -0.5 (grey), then 0 to 0.1, 0.1 to 0.3, 0.3 to 0.7, 0.7 to 1.0
+breaks <- c(-1.5, -0.5, 
+            seq(0, 0.1, length.out = 26)[-26],  # 25 colors for 0-0.1
+            seq(0.1, 0.3, length.out = 26)[-1],  # 25 colors for 0.1-0.3
+            seq(0.3, 0.7, length.out = 26)[-1],  # 25 colors for 0.3-0.7
+            seq(0.7, 1.0, length.out = 26)[-1])  # 25 colors for 0.7-1.0
+
+# Create heatmap with species in Newick order (no row clustering)
+# Plot full matrix - no sampling (NO d-based filtering in first heatmap)
+pheatmap(
+  max2_matrix,
+  color = custom_palette,
+  breaks = breaks,
+  cluster_rows = FALSE,  # Keep species in Newick order
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = FALSE,  # Too many decoy IDs to show
+  annotation_col = annotation_col,
+  annotation_colors = ann_colors,
+  main = "Heatmap of max2 (Secondary SpliceAI Scores) - Species Ordered by Newick Tree",
+  fontsize_row = 8,
+  fontsize_col = 6,
+  border_color = NA,
+  na_col = "grey70",
+  legend_breaks = c(-1, 0, 0.1, 0.3, 0.7, 1.0),
+  legend_labels = c("Missing", "0.0", "0.1", "0.3", "0.7", "1.0")
+)
+```
+
+## 4b. Heatmap of max1 Values
+
+```{r heatmap-max1}
+# Prepare matrix for heatmap: decoy IDs as columns, species as rows
+# Extract max1 values for each decoy-species pair
+max1_matrix_data <- all_data_valid %>%
+  select(decoyID, species, max1) %>%
+  pivot_wider(names_from = decoyID, values_from = max1)
+
+# Set species as row names and convert to matrix
+max1_matrix <- as.matrix(max1_matrix_data[, -1])  # Exclude species column
+rownames(max1_matrix) <- max1_matrix_data$species
+
+# Replace NA with -1 for visualization (missing data)
+max1_matrix[is.na(max1_matrix)] <- -1
+
+# Reorder rows (species) to match Newick order (reuse from max2 heatmap)
+max1_matrix <- max1_matrix[final_species_order, , drop = FALSE]
+
+# Map species IDs to common names for row labels (reuse from max2 heatmap)
+current_rownames_max1 <- rownames(max1_matrix)
+common_names_max1 <- ifelse(current_rownames_max1 %in% names(species_id_to_common),
+  species_id_to_common[current_rownames_max1],
+  current_rownames_max1
+)
+rownames(max1_matrix) <- common_names_max1
+
+cat("\nMax1 Heatmap Matrix:\n")
+cat("  Dimensions:", dim(max1_matrix), "\n")
+cat("  Species (rows):", nrow(max1_matrix), "\n")
+cat("  Decoy IDs (columns):", ncol(max1_matrix), "\n")
+cat("  Value range:", min(max1_matrix), "to", max(max1_matrix), "\n")
+cat("  -1 values (missing):", sum(max1_matrix == -1), "\n")
+
+# Use the same custom color palette and breaks as max2
+# Create heatmap with species in Newick order (no row clustering)
+pheatmap(
+  max1_matrix,
+  color = custom_palette,
+  breaks = breaks,
+  cluster_rows = FALSE,  # Keep species in Newick order
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = FALSE,  # Too many decoy IDs to show
+  main = "Heatmap of max1 (Primary SpliceAI Scores) - Species Ordered by Newick Tree",
+  fontsize_row = 8,
+  fontsize_col = 6,
+  border_color = NA,
+  na_col = "grey70",
+  legend_breaks = c(-1, 0, 0.1, 0.3, 0.7, 1.0),
+  legend_labels = c("Missing", "0.0", "0.1", "0.3", "0.7", "1.0")
+)
+```
+
+## 5. Additional Analysis: pos1 Distribution by Decile
+
+```{r pos1-decile-analysis}
+# Analyze pos1 distribution to check for canonical splice site detection
+pos1_analysis <- all_data_valid %>%
+  filter(!is.na(pos1)) %>%
+  mutate(
+    pos1_bin = cut(pos1, breaks = c(0, 30, 40, 50, 60, 70, 100, 200, Inf),
+                   labels = c("0-30", "31-40", "41-50", "51-60", "61-70", "71-100", "101-200", "200+"))
+  )
+
+p_pos1_bins <- ggplot(pos1_analysis, aes(x = pos1_bin, fill = pos1_bin)) +
+  geom_bar(stat = "count", alpha = 0.7) +
+  scale_fill_viridis_d(option = "plasma") +
+  labs(title = "Distribution of pos1 Values by Position Bins",
+       subtitle = "Checking if canonical splice sites cluster around position 50",
+       x = "Position Bin (nucleotides)",
+       y = "Count",
+       caption = paste("Expected canonical splice site position: ~50 nt")) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") +
+  geom_vline(xintercept = 3.5, linetype = "dashed", color = "red", linewidth = 1) +
+  annotate("text", x = 3.5, y = Inf, label = "Expected range\n(41-60)", 
+           vjust = 1.5, hjust = 0.5, color = "red", fontface = "bold")
+
+print(p_pos1_bins)
+
+# Summary by bin
+cat("\npos1 Distribution by Bin:\n")
+pos1_summary <- pos1_analysis %>%
+  count(pos1_bin) %>%
+  mutate(percentage = round(100 * n / sum(n), 2))
+print(pos1_summary)
+```
+
+## 6. Summary: Validation of Canonical Splice Site Detection
+
+```{r validation-summary}
+cat("\n")
+cat(paste0(rep("=", 80), collapse = ""), "\n")
+cat("VALIDATION SUMMARY: Canonical Splice Site Detection\n")
+cat(paste0(rep("=", 80), collapse = ""), "\n\n")
+
+# Key metrics
+total_valid <- nrow(all_data_valid)
+pos1_near_50 <- sum(all_data_valid$pos1 >= 40 & all_data_valid$pos1 <= 60, na.rm = TRUE)
+pos1_lt_55 <- sum(all_data_valid$pos1 < 55, na.rm = TRUE)
+pos2_lt_55 <- sum(all_data_valid$pos2 < 55, na.rm = TRUE)
+max1_high <- sum(all_data_valid$max1 > 0.8, na.rm = TRUE)
+max2_gt_max1 <- sum(all_data_valid$max2 > all_data_valid$max1, na.rm = TRUE)
+max2_gt_07 <- sum(all_data_valid$max2 > 0.7, na.rm = TRUE)
+max2_gt_08 <- sum(all_data_valid$max2 > 0.8, na.rm = TRUE)
+max1_lt_005 <- sum(all_data_valid$max1 < 0.05, na.rm = TRUE)
+d_gt_09 <- sum(all_data_valid$d > 0.9, na.rm = TRUE)
+
+cat("Key Validation Metrics:\n")
+cat(sprintf("  1. pos1 in expected range (40-60 nt): %d (%.2f%%)\n", 
+            pos1_near_50, 100 * pos1_near_50 / total_valid))
+cat(sprintf("  2. pos1 < 55 nt: %d (%.2f%%)\n", 
+            pos1_lt_55, 100 * pos1_lt_55 / total_valid))
+cat(sprintf("  3. pos2 < 55 nt: %d (%.2f%%)\n", 
+            pos2_lt_55, 100 * pos2_lt_55 / total_valid))
+cat(sprintf("  4. max1 > 0.8 (high confidence): %d (%.2f%%)\n", 
+            max1_high, 100 * max1_high / total_valid))
+cat(sprintf("  5. max2 > max1 (secondary site stronger): %d (%.2f%%)\n", 
+            max2_gt_max1, 100 * max2_gt_max1 / total_valid))
+cat(sprintf("  6. max2 > 0.7: %d (%.2f%%)\n", 
+            max2_gt_07, 100 * max2_gt_07 / total_valid))
+cat(sprintf("  7. max2 > 0.8: %d (%.2f%%)\n", 
+            max2_gt_08, 100 * max2_gt_08 / total_valid))
+cat(sprintf("  8. max1 < 0.05: %d (%.2f%%)\n", 
+            max1_lt_005, 100 * max1_lt_005 / total_valid))
+cat(sprintf("  9. d > 0.9: %d (%.2f%%)\n", 
+            d_gt_09, 100 * d_gt_09 / total_valid))
+cat(sprintf("  10. Mean pos1: %.2f nt (expected ~50 nt)\n", 
+            mean(all_data_valid$pos1, na.rm = TRUE)))
+cat(sprintf("  11. Median pos1: %.2f nt\n", 
+            median(all_data_valid$pos1, na.rm = TRUE)))
+
+# Investigate contradiction: pos1 < 55 should include pos1 in range 40-60
+cat("\nInvestigating pos1 range contradiction:\n")
+pos1_lt_40 <- sum(all_data_valid$pos1 < 40, na.rm = TRUE)
+pos1_40_54 <- sum(all_data_valid$pos1 >= 40 & all_data_valid$pos1 < 55, na.rm = TRUE)
+pos1_55_60 <- sum(all_data_valid$pos1 >= 55 & all_data_valid$pos1 <= 60, na.rm = TRUE)
+pos1_gt_60 <- sum(all_data_valid$pos1 > 60, na.rm = TRUE)
+
+cat(sprintf("  pos1 < 40: %d (%.2f%%)\n", pos1_lt_40, 100 * pos1_lt_40 / total_valid))
+cat(sprintf("  pos1 40-54: %d (%.2f%%)\n", pos1_40_54, 100 * pos1_40_54 / total_valid))
+cat(sprintf("  pos1 55-60: %d (%.2f%%)\n", pos1_55_60, 100 * pos1_55_60 / total_valid))
+cat(sprintf("  pos1 > 60: %d (%.2f%%)\n", pos1_gt_60, 100 * pos1_gt_60 / total_valid))
+cat(sprintf("  Sum check: %d (should equal total_valid: %d)\n", 
+            pos1_lt_40 + pos1_40_54 + pos1_55_60 + pos1_gt_60, total_valid))
+cat(sprintf("  pos1 < 55 breakdown: < 40 (%d) + 40-54 (%d) = %d\n", 
+            pos1_lt_40, pos1_40_54, pos1_lt_40 + pos1_40_54))
+cat(sprintf("  pos1 40-60 breakdown: 40-54 (%d) + 55-60 (%d) = %d\n", 
+            pos1_40_54, pos1_55_60, pos1_40_54 + pos1_55_60))
+
+cat("\nInterpretation:\n")
+if (mean(all_data_valid$pos1, na.rm = TRUE) > 40 && mean(all_data_valid$pos1, na.rm = TRUE) < 60) {
+  cat("  ✓ Mean pos1 is in expected range (40-60 nt) - GOOD\n")
+} else {
+  cat("  ⚠ Mean pos1 is outside expected range - may indicate issues with large insertions\n")
+}
+
+if (100 * pos1_lt_55 / total_valid > 80) {
+  cat("  ✓ >80% of pos1 values are < 55 nt - GOOD\n")
+} else {
+  cat("  ⚠ <80% of pos1 values are < 55 nt - may indicate detection issues\n")
+}
+
+cat("\n", paste0(rep("=", 80), collapse = ""), "\n")
+```
+
+## 7. Create Filtered Datasets
+
+```{r create-filtered-datasets}
+# Note: Removed max2 > 0.8 filter as requested
+# The d-based filtering is now applied in the heatmap visualization
+
+cat("\nDataset Summary:\n")
+cat("  Total valid data points:", nrow(all_data_valid), "\n")
+cat("  Data points with d > 0.8:", sum(all_data_valid$d > 0.8, na.rm = TRUE), 
+    sprintf("(%.2f%%)\n", 100 * sum(all_data_valid$d > 0.8, na.rm = TRUE) / nrow(all_data_valid)))
+```
+
+## 8. Additional Analysis (No Filtering Applied)
+
+```{r filtered-histogram-pos1-pos2}
+# Histogram comparing pos1 and pos2 (NO LOG SCALE)
+# Using all_data_valid (no filtering applied)
+pos_data_long_filtered <- all_data_valid %>%
+  select(decoyID, species, pos1, pos2) %>%
+  pivot_longer(cols = c(pos1, pos2), 
+               names_to = "position_type", 
+               values_to = "position") %>%
+  filter(!is.na(position))
+
+p_hist_pos_filtered <- ggplot(pos_data_long_filtered, aes(x = position, fill = position_type)) +
+  geom_histogram(alpha = 0.6, bins = 100, position = "identity") +
+  scale_fill_manual(values = c("pos1" = "steelblue", "pos2" = "salmon"),
+                    labels = c("pos1", "pos2"),
+                    name = "Position Type") +
+  labs(title = "Distribution of pos1 and pos2 Values",
+       subtitle = "All valid data points",
+       x = "Position (nucleotides from sequence start)",
+       y = "Frequency",
+       caption = paste("Total data points:", nrow(pos_data_long_filtered))) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12),
+        legend.position = "right") +
+  # Add vertical line at position 50 (expected canonical splice site)
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red", linewidth = 1) +
+  annotate("text", x = 50, y = Inf, label = "Expected pos1 (~50)", 
+           vjust = 1.5, hjust = 0, color = "red", fontface = "bold")
+
+print(p_hist_pos_filtered)
+
+# Summary statistics
+cat("\nPosition Summary Statistics:\n")
+cat("  pos1 - Mean:", mean(all_data_valid$pos1, na.rm = TRUE), 
+    "| Median:", median(all_data_valid$pos1, na.rm = TRUE), 
+    "| % < 55:", round(100 * sum(all_data_valid$pos1 < 55, na.rm = TRUE) / nrow(all_data_valid), 2), "%\n")
+cat("  pos2 - Mean:", mean(all_data_valid$pos2, na.rm = TRUE), 
+    "| Median:", median(all_data_valid$pos2, na.rm = TRUE), "\n")
+```
+
+```{r filtered-scatterplot-max2-gt-max1}
+# Filter for cases where max2 > max1
+max2_gt_max1_data_filtered <- all_data_valid %>%
+  filter(max2 > max1) %>%
+  filter(!is.na(max2) & !is.na(pos2))
+
+cat("\nCases where max2 > max1:\n")
+cat("  Total cases:", nrow(max2_gt_max1_data_filtered), "\n")
+cat("  Percentage of all valid data:", 
+    round(100 * nrow(max2_gt_max1_data_filtered) / nrow(all_data_valid), 2), "%\n")
+
+p_scatter_max2_filtered <- ggplot(max2_gt_max1_data_filtered, aes(x = pos2, y = max2)) +
+  geom_point(alpha = 0.3, size = 0.5, color = "darkgreen") +
+  geom_smooth(method = "loess", se = TRUE, color = "red", linewidth = 1.5) +
+  labs(title = "Scatterplot: max2 vs pos2 (when max2 > max1)",
+       subtitle = paste("All valid data points (n =", 
+                       format(nrow(max2_gt_max1_data_filtered), big.mark = ","), ")"),
+       x = "pos2 (position of max2)",
+       y = "max2 (SpliceAI score)",
+       caption = "Red line shows LOESS smoothing trend") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  # Add reference lines
+  geom_hline(yintercept = 0.1, linetype = "dashed", color = "blue", alpha = 0.5) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "blue", alpha = 0.5) +
+  annotate("text", x = Inf, y = 0.1, label = "max2 = 0.1", 
+           hjust = 1.1, vjust = -0.5, color = "blue", size = 3) +
+  annotate("text", x = Inf, y = 0.5, label = "max2 = 0.5", 
+           hjust = 1.1, vjust = -0.5, color = "blue", size = 3)
+
+print(p_scatter_max2_filtered)
+```
+
+```{r filtered-density-plots-all-stats}
+# Prepare data for density plots
+density_data_filtered <- all_data_valid %>%
+  select(max1, pos1, max2, pos2) %>%
+  pivot_longer(cols = everything(), 
+               names_to = "statistic", 
+               values_to = "value") %>%
+  filter(!is.na(value))
+
+# Create density plots (NO LOG SCALE)
+density_data_pos_filtered <- density_data_filtered %>% filter(statistic %in% c("pos1", "pos2"))
+density_data_score_filtered <- density_data_filtered %>% filter(statistic %in% c("max1", "max2"))
+
+p_density_pos_filtered <- ggplot(density_data_pos_filtered, aes(x = value, fill = statistic)) +
+  geom_density(alpha = 0.6, linewidth = 1) +
+  facet_wrap(~ statistic, scales = "free", ncol = 2,
+             labeller = labeller(statistic = c(
+               "pos1" = "pos1 (Position of max1)",
+               "pos2" = "pos2 (Position of max2)"
+             ))) +
+  scale_fill_viridis_d(option = "plasma", name = "Statistic") +
+  labs(title = "Distribution (Density) of Position Statistics",
+       subtitle = "All valid data points",
+       x = "Value",
+       y = "Density") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12),
+        strip.text = element_text(size = 11, face = "bold"),
+        legend.position = "none")
+
+p_density_score_filtered <- ggplot(density_data_score_filtered, aes(x = value, fill = statistic)) +
+  geom_density(alpha = 0.6, linewidth = 1) +
+  facet_wrap(~ statistic, scales = "free", ncol = 2,
+             labeller = labeller(statistic = c(
+               "max1" = "max1 (Primary SpliceAI Score)",
+               "max2" = "max2 (Secondary SpliceAI Score)"
+             ))) +
+  scale_fill_viridis_d(option = "plasma", name = "Statistic") +
+  labs(title = "Distribution (Density) of Score Statistics",
+       subtitle = "All valid data points",
+       x = "Value",
+       y = "Density") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12),
+        strip.text = element_text(size = 11, face = "bold"),
+        legend.position = "none")
+
+print(p_density_pos_filtered)
+print(p_density_score_filtered)
+
+# Summary statistics for each
+cat("\nSummary Statistics by Statistic:\n")
+for (stat in c("max1", "pos1", "max2", "pos2")) {
+  stat_data <- density_data_filtered %>% filter(statistic == stat)
+  cat(sprintf("  %s: Mean = %.3f, Median = %.3f, SD = %.3f, Range = [%.3f, %.3f]\n",
+              stat,
+              mean(stat_data$value, na.rm = TRUE),
+              median(stat_data$value, na.rm = TRUE),
+              sd(stat_data$value, na.rm = TRUE),
+              min(stat_data$value, na.rm = TRUE),
+              max(stat_data$value, na.rm = TRUE)))
+}
+```
+
+```{r filtered-heatmap-max2}
+# Prepare matrix for heatmap with d-based filtering: decoy IDs as columns, species as rows
+# Extract max2 values for each decoy-species pair
+max2_matrix_data_filtered <- all_data_valid %>%
+  select(decoyID, species, max2) %>%
+  pivot_wider(names_from = decoyID, values_from = max2)
+
+# Set species as row names and convert to matrix
+max2_matrix_filtered <- as.matrix(max2_matrix_data_filtered[, -1])  # Exclude species column
+rownames(max2_matrix_filtered) <- max2_matrix_data_filtered$species
+
+# Replace NA with -1 for visualization (missing data)
+max2_matrix_filtered[is.na(max2_matrix_filtered)] <- -1
+
+# Get d values for each decoy-species pair (for filtering)
+d_matrix_data_filtered <- all_data_valid %>%
+  select(decoyID, species, d) %>%
+  pivot_wider(names_from = decoyID, values_from = d)
+d_matrix_filtered <- as.matrix(d_matrix_data_filtered[, -1])
+rownames(d_matrix_filtered) <- d_matrix_data_filtered$species
+
+# Replace NA in d_matrix with 0 (no length change)
+d_matrix_filtered[is.na(d_matrix_filtered)] <- 0
+
+# Reorder rows (species) to match Newick order (reuse from main heatmap section)
+available_species_filtered <- rownames(max2_matrix_filtered)
+ordered_available_filtered <- intersect(ordered_species_ids, available_species_filtered)
+other_species_filtered <- setdiff(available_species_filtered, ordered_available_filtered)
+final_species_order_filtered <- c(ordered_available_filtered, other_species_filtered)
+max2_matrix_filtered <- max2_matrix_filtered[final_species_order_filtered, , drop = FALSE]
+d_matrix_filtered <- d_matrix_filtered[final_species_order_filtered, , drop = FALSE]
+
+# Apply d-based filtering: set max2 to -0.2 where d > 0.8
+# Make sure matrices have same dimensions and column order
+if (all(dim(max2_matrix_filtered) == dim(d_matrix_filtered)) && all(colnames(max2_matrix_filtered) == colnames(d_matrix_filtered))) {
+  max2_matrix_filtered[d_matrix_filtered > 0.8] <- -0.2
+  cat("  Values set to -0.2 (d > 0.8):", sum(max2_matrix_filtered == -0.2), "\n")
+} else {
+  cat("  WARNING: Matrix dimensions don't match, skipping d-based filtering\n")
+}
+
+# Map species IDs to common names for row labels (reuse mapping from main heatmap section)
+current_rownames_filtered <- rownames(max2_matrix_filtered)
+common_names_filtered <- ifelse(current_rownames_filtered %in% names(species_id_to_common),
+  species_id_to_common[current_rownames_filtered],
+  current_rownames_filtered
+)
+rownames(max2_matrix_filtered) <- common_names_filtered
+
+cat("\nFiltered Max2 Heatmap Matrix (with d > 0.8 mask):\n")
+cat("  Dimensions:", dim(max2_matrix_filtered), "\n")
+cat("  Species (rows):", nrow(max2_matrix_filtered), "\n")
+cat("  Decoy IDs (columns):", ncol(max2_matrix_filtered), "\n")
+cat("  Value range:", min(max2_matrix_filtered), "to", max(max2_matrix_filtered), "\n")
+cat("  -1 values (missing):", sum(max2_matrix_filtered == -1), "\n")
+cat("  -0.2 values (d > 0.8):", sum(max2_matrix_filtered == -0.2), "\n")
+
+# Create color palette: grey for -1, viridis for -0.2 to 1
+# viridis will naturally show -0.2 as dark purple
+n_colors_filtered <- 100
+color_gradient_filtered <- c("grey70", viridis(n_colors_filtered))
+
+# Create heatmap with species in Newick order (no row clustering)
+# Plot full matrix - no sampling
+pheatmap(
+  max2_matrix_filtered,
+  color = color_gradient_filtered,
+  breaks = c(-1.5, -0.5, seq(-0.2, 1, length.out = n_colors_filtered + 1)),
+  cluster_rows = FALSE,  # Keep species in Newick order
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = FALSE,  # Too many decoy IDs to show
+  main = "Heatmap of max2 (Filtered: d > 0.8 shown in dark purple) - Species Ordered by Newick Tree",
+  fontsize_row = 8,
+  fontsize_col = 6,
+  border_color = NA,
+  na_col = "grey70",
+  legend_breaks = c(-0.2, -1, 0, 0.25, 0.5, 0.75, 1),
+  legend_labels = c("d > 0.8", "Missing", "0.0", "0.25", "0.5", "0.75", "1.0")
+)
+```
+
+```{r filtered-heatmap-max2-d09}
+# Prepare matrix for heatmap with d-based filtering (d > 0.9): decoy IDs as columns, species as rows
+# Extract max2 values for each decoy-species pair
+max2_matrix_data_filtered_d04 <- all_data_valid %>%
+  select(decoyID, species, max2) %>%
+  pivot_wider(names_from = decoyID, values_from = max2)
+
+# Set species as row names and convert to matrix
+max2_matrix_filtered_d04 <- as.matrix(max2_matrix_data_filtered_d04[, -1])  # Exclude species column
+rownames(max2_matrix_filtered_d04) <- max2_matrix_data_filtered_d04$species
+
+# Replace NA with -1 for visualization (missing data)
+max2_matrix_filtered_d04[is.na(max2_matrix_filtered_d04)] <- -1
+
+# Get d values for each decoy-species pair (for filtering) - reuse from previous section
+# d_matrix_filtered already exists from previous chunk, but we need to recreate it to ensure consistency
+d_matrix_data_filtered_d04 <- all_data_valid %>%
+  select(decoyID, species, d) %>%
+  pivot_wider(names_from = decoyID, values_from = d)
+d_matrix_filtered_d04 <- as.matrix(d_matrix_data_filtered_d04[, -1])
+rownames(d_matrix_filtered_d04) <- d_matrix_data_filtered_d04$species
+
+# Replace NA in d_matrix with 0 (no length change)
+d_matrix_filtered_d04[is.na(d_matrix_filtered_d04)] <- 0
+
+# Reorder rows (species) to match Newick order (reuse from main heatmap section)
+available_species_filtered_d04 <- rownames(max2_matrix_filtered_d04)
+ordered_available_filtered_d04 <- intersect(ordered_species_ids, available_species_filtered_d04)
+other_species_filtered_d04 <- setdiff(available_species_filtered_d04, ordered_available_filtered_d04)
+final_species_order_filtered_d04 <- c(ordered_available_filtered_d04, other_species_filtered_d04)
+max2_matrix_filtered_d04 <- max2_matrix_filtered_d04[final_species_order_filtered_d04, , drop = FALSE]
+d_matrix_filtered_d04 <- d_matrix_filtered_d04[final_species_order_filtered_d04, , drop = FALSE]
+
+# Apply d-based filtering: set max2 to -0.2 where d > 0.9
+# Make sure matrices have same dimensions and column order
+if (all(dim(max2_matrix_filtered_d04) == dim(d_matrix_filtered_d04)) && all(colnames(max2_matrix_filtered_d04) == colnames(d_matrix_filtered_d04))) {
+  max2_matrix_filtered_d04[d_matrix_filtered_d04 > 0.9] <- -0.2
+  cat("  Values set to -0.2 (d > 0.9):", sum(max2_matrix_filtered_d04 == -0.2), "\n")
+} else {
+  cat("  WARNING: Matrix dimensions don't match, skipping d-based filtering\n")
+}
+
+# Map species IDs to common names for row labels (reuse mapping from main heatmap section)
+current_rownames_filtered_d04 <- rownames(max2_matrix_filtered_d04)
+common_names_filtered_d04 <- ifelse(current_rownames_filtered_d04 %in% names(species_id_to_common),
+  species_id_to_common[current_rownames_filtered_d04],
+  current_rownames_filtered_d04
+)
+rownames(max2_matrix_filtered_d04) <- common_names_filtered_d04
+
+cat("\nFiltered Max2 Heatmap Matrix (with d > 0.9 mask):\n")
+cat("  Dimensions:", dim(max2_matrix_filtered_d04), "\n")
+cat("  Species (rows):", nrow(max2_matrix_filtered_d04), "\n")
+cat("  Decoy IDs (columns):", ncol(max2_matrix_filtered_d04), "\n")
+cat("  Value range:", min(max2_matrix_filtered_d04), "to", max(max2_matrix_filtered_d04), "\n")
+cat("  -1 values (missing):", sum(max2_matrix_filtered_d04 == -1), "\n")
+cat("  -0.2 values (d > 0.9):", sum(max2_matrix_filtered_d04 == -0.2), "\n")
+
+# Create color palette: grey for -1, viridis for -0.2 to 1
+# viridis will naturally show -0.2 as dark purple
+n_colors_filtered_d04 <- 100
+color_gradient_filtered_d04 <- c("grey70", viridis(n_colors_filtered_d04))
+
+# Create heatmap with species in Newick order (no row clustering)
+# Plot full matrix - no sampling
+pheatmap(
+  max2_matrix_filtered_d04,
+  color = color_gradient_filtered_d04,
+  breaks = c(-1.5, -0.5, seq(-0.2, 1, length.out = n_colors_filtered_d04 + 1)),
+  cluster_rows = FALSE,  # Keep species in Newick order
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = FALSE,  # Too many decoy IDs to show
+  main = "Heatmap of max2 (Filtered: d > 0.9 shown in dark purple) - Species Ordered by Newick Tree",
+  fontsize_row = 8,
+  fontsize_col = 6,
+  border_color = NA,
+  na_col = "grey70",
+  legend_breaks = c(-0.2, -1, 0, 0.25, 0.5, 0.75, 1),
+  legend_labels = c("d > 0.9", "Missing", "0.0", "0.25", "0.5", "0.75", "1.0")
+)
+```
+
+```{r filtered-heatmap-max2-d07}
+# Prepare matrix for heatmap with d-based filtering (d > 0.7): decoy IDs as columns, species as rows
+# Extract max2 values for each decoy-species pair
+max2_matrix_data_filtered_d07 <- all_data_valid %>%
+  select(decoyID, species, max2) %>%
+  pivot_wider(names_from = decoyID, values_from = max2)
+
+# Set species as row names and convert to matrix
+max2_matrix_filtered_d07 <- as.matrix(max2_matrix_data_filtered_d07[, -1])  # Exclude species column
+rownames(max2_matrix_filtered_d07) <- max2_matrix_data_filtered_d07$species
+
+# Replace NA with -1 for visualization (missing data)
+max2_matrix_filtered_d07[is.na(max2_matrix_filtered_d07)] <- -1
+
+# Get d values for each decoy-species pair (for filtering)
+d_matrix_data_filtered_d07 <- all_data_valid %>%
+  select(decoyID, species, d) %>%
+  pivot_wider(names_from = decoyID, values_from = d)
+d_matrix_filtered_d07 <- as.matrix(d_matrix_data_filtered_d07[, -1])
+rownames(d_matrix_filtered_d07) <- d_matrix_data_filtered_d07$species
+
+# Replace NA in d_matrix with 0 (no length change)
+d_matrix_filtered_d07[is.na(d_matrix_filtered_d07)] <- 0
+
+# Reorder rows (species) to match Newick order (reuse from main heatmap section)
+available_species_filtered_d07 <- rownames(max2_matrix_filtered_d07)
+ordered_available_filtered_d07 <- intersect(ordered_species_ids, available_species_filtered_d07)
+other_species_filtered_d07 <- setdiff(available_species_filtered_d07, ordered_available_filtered_d07)
+final_species_order_filtered_d07 <- c(ordered_available_filtered_d07, other_species_filtered_d07)
+max2_matrix_filtered_d07 <- max2_matrix_filtered_d07[final_species_order_filtered_d07, , drop = FALSE]
+d_matrix_filtered_d07 <- d_matrix_filtered_d07[final_species_order_filtered_d07, , drop = FALSE]
+
+# Apply d-based filtering: set max2 to -0.2 where d > 0.7
+# Make sure matrices have same dimensions and column order
+if (all(dim(max2_matrix_filtered_d07) == dim(d_matrix_filtered_d07)) && all(colnames(max2_matrix_filtered_d07) == colnames(d_matrix_filtered_d07))) {
+  max2_matrix_filtered_d07[d_matrix_filtered_d07 > 0.7] <- -0.2
+  cat("  Values set to -0.2 (d > 0.7):", sum(max2_matrix_filtered_d07 == -0.2), "\n")
+} else {
+  cat("  WARNING: Matrix dimensions don't match, skipping d-based filtering\n")
+}
+
+# Map species IDs to common names for row labels (reuse mapping from main heatmap section)
+current_rownames_filtered_d07 <- rownames(max2_matrix_filtered_d07)
+common_names_filtered_d07 <- ifelse(current_rownames_filtered_d07 %in% names(species_id_to_common),
+  species_id_to_common[current_rownames_filtered_d07],
+  current_rownames_filtered_d07
+)
+rownames(max2_matrix_filtered_d07) <- common_names_filtered_d07
+
+cat("\nFiltered Max2 Heatmap Matrix (with d > 0.7 mask):\n")
+cat("  Dimensions:", dim(max2_matrix_filtered_d07), "\n")
+cat("  Species (rows):", nrow(max2_matrix_filtered_d07), "\n")
+cat("  Decoy IDs (columns):", ncol(max2_matrix_filtered_d07), "\n")
+cat("  Value range:", min(max2_matrix_filtered_d07), "to", max(max2_matrix_filtered_d07), "\n")
+cat("  -1 values (missing):", sum(max2_matrix_filtered_d07 == -1), "\n")
+cat("  -0.2 values (d > 0.7):", sum(max2_matrix_filtered_d07 == -0.2), "\n")
+
+# Create color palette: grey for -1, viridis for -0.2 to 1
+# viridis will naturally show -0.2 as dark purple
+n_colors_filtered_d07 <- 100
+color_gradient_filtered_d07 <- c("grey70", viridis(n_colors_filtered_d07))
+
+# Create heatmap with species in Newick order (no row clustering)
+# Plot full matrix - no sampling
+pheatmap(
+  max2_matrix_filtered_d07,
+  color = color_gradient_filtered_d07,
+  breaks = c(-1.5, -0.5, seq(-0.2, 1, length.out = n_colors_filtered_d07 + 1)),
+  cluster_rows = FALSE,  # Keep species in Newick order
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = FALSE,  # Too many decoy IDs to show
+  main = "Heatmap of max2 (Filtered: d > 0.7 shown in dark purple) - Species Ordered by Newick Tree",
+  fontsize_row = 8,
+  fontsize_col = 6,
+  border_color = NA,
+  na_col = "grey70",
+  legend_breaks = c(-0.2, -1, 0, 0.25, 0.5, 0.75, 1),
+  legend_labels = c("d > 0.7", "Missing", "0.0", "0.25", "0.5", "0.75", "1.0")
+)
+```
+

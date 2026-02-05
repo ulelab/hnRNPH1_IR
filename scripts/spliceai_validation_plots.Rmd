@@ -140,6 +140,25 @@ cat("  Total data points:", nrow(all_data), "\n")
 cat("  Valid data points (excluding -1):", nrow(all_data_valid), "\n")
 cat("  Unique decoy IDs:", length(unique(all_data_valid$decoyID)), "\n")
 cat("  Unique species:", length(unique(all_data_valid$species)), "\n")
+
+# Extract and save filtered datasets
+# 1. Extract rows where pos2 is between 70-79
+pos2_70_79 <- all_data_valid[pos2 >= 70 & pos2 <= 79]
+cat("\nExtracting rows where pos2 is between 70-79:\n")
+cat("  Number of rows:", nrow(pos2_70_79), "\n")
+fwrite(pos2_70_79, 
+       file = "/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.4/pos2_70_79_filtered.tsv",
+       sep = "\t")
+cat("  Saved to: pos2_70_79_filtered.tsv\n")
+
+# 2. Extract rows where max1 is less than 0.05
+max1_lt_005 <- all_data_valid[max1 < 0.05]
+cat("\nExtracting rows where max1 < 0.05:\n")
+cat("  Number of rows:", nrow(max1_lt_005), "\n")
+fwrite(max1_lt_005,
+       file = "/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.4/max1_lt_005_filtered.tsv",
+       sep = "\t")
+cat("  Saved to: max1_lt_005_filtered.tsv\n")
 ```
 
 ## 1. Histogram: Position Comparison (pos1 vs pos2)

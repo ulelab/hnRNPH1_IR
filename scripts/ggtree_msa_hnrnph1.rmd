@@ -42,32 +42,33 @@ assign(
 # Define File Paths
 
 ```{r define-paths}
-# Base WSL path
-base_wsl_path <- "\\\\wsl.localhost/Ubuntu/home/mikej10/advbfx"
+# Base path
+base_path <- "/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF"
 
-# Directory containing extracted files
-extracted_dir <- file.path(base_wsl_path, "intronretention", "extracted_regions")
-
-# Reference directory
-ref_dir <- file.path(base_wsl_path, "reference", "phastCons100way")
-
-# 100-way hnrnph1 alignment FASTA file (with common names)
-hnrnph1_100way_fasta <- file.path(extracted_dir, "100wayhnrnph1_commonNames.fa")
+# hnrnph1 alignment FASTA file (with common names, ordered by Newick tree)
+hnrnph1_100way_fasta <- file.path(base_path, "data", "HNRNPH1", "hnrnph1v2_processed.fa")
 
 # Phylogenetic tree file (using common names version)
-tree_file <- file.path(base_wsl_path, "intronretention", "hg38.100way.commonNames.nh")
+tree_file <- file.path(base_path, "reference", "hg38.100way.commonNames.nh")
 
 # Tree to clade mapping file (pre-computed mapping)
-tree_clade_mapping_file <- file.path(base_wsl_path, "intronretention", "tree_to_clade_mapping.tsv")
+tree_clade_mapping_file <- file.path(base_path, "results", "tree_to_clade_mapping.tsv")
 
 # SpliceAI predictions file
-spliceai_file <- file.path(base_wsl_path, "intronretention", "HNRNPH1", "spliceinfhnrnph1.tsv")
+spliceai_file <- file.path(base_path, "data", "HNRNPH1", "spliceinfhnrnph1.tsv")
 
 # Missing species (those not present in the FASTA file)
+# Includes original missing species plus species removed from the FASTA
 missing_species <- c(
+    # Original missing species
     "amaVit1", "astMex1", "danRer10", "fr3", "gadMor1", "gasAcu1",
     "hapBur1", "lepOcu1", "mayZeb1", "neoBri1", "oreNil2", "petMar2",
-    "punNye1", "takFla1", "tetNig2", "xenTro7", "xipMac1"
+    "punNye1", "takFla1", "tetNig2", "xenTro7", "xipMac1",
+    # Species removed from FASTA (lines 187-250 of 100wayhnrnph1_commonNames.fa)
+    "colLiv1", "falChe1", "falPer1", "ficAlb2", "zonAlb1", "geoFor1",
+    "taeGut2", "melUnd1", "araMac1", "anaPla1", "galGal4", "melGal1",
+    "allMis1", "cheMyd1", "chrPic2", "pelSin1", "anoCar2", "latCha1",
+    "pseHum1", "apaSpi1", "oryLat2"
 )
 ```
 
@@ -87,34 +88,22 @@ p <- ggmsa(
 seq_data <- readLines(hnrnph1_100way_fasta)
 seq_count <- sum(grepl("^>", seq_data))
 
-cat("Number of sequences in 100-way hnrnph1 alignment:", seq_count, "\n")
 
-# Add highlighting rectangles
-# First highlight: positions 67-69
-# Second highlight: positions 79-82
+# Highlight: positions 27-33
+
 p <- p +
     annotate("rect",
-        xmin = 67 - 0.5, xmax = 69 + 0.5,
-        ymin = -Inf, ymax = Inf,
-        alpha = 0.2, fill = "yellow", color = "orange", linewidth = 0.8
-    ) +
-    annotate("rect",
-        xmin = 79 - 0.5, xmax = 82 + 0.5,
+        xmin = 27 - 0.5, xmax = 33 + 0.5,
         ymin = -Inf, ymax = Inf,
         alpha = 0.2, fill = "yellow", color = "orange", linewidth = 0.8
     ) +
     annotate("text",
-        x = 68, y = seq_count + 0.5, label = "67-69",
+        x = 30, y = seq_count + 0.5, label = "27-33",
         color = "darkorange", fontface = "bold", size = 3.5
-    ) +
-    annotate("text",
-        x = 80.5, y = seq_count + 0.5, label = "79-82",
-        color = "darkorange", fontface = "bold", size = 3.5
-    )
+)
 
 print(p)
 ```
-
 # Phylogenetic Tree with Highlighted Missing Species
 
 ```{r phylogenetic-tree, fig.height=14, fig.width=12}
