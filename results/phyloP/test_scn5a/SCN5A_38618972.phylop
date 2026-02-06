@@ -1,0 +1,23 @@
+WARNING: pruned away leaves with no match in alignment (test_species1, test_species2).
+fixedStep chrom=SCN5A_38618972 start=38618972 step=1
+150.5
+320.1
+999999999.000
+-50.2
+305.8
+350.0
+-10.5
+25.3
+310.2
+999999999.000
+-5.2
+400.0
+200.0
+-15.8
+325.5
+999999999.000
+-8.3
+999999999.000
+280.0
+150.0
+-20.1

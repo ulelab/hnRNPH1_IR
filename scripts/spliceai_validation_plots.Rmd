@@ -25,10 +25,11 @@ library(GenomicRanges)
 
 ```{r qc-bed-coordinates}
 # Read the BED file
-bed_data <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/data/DecoysInConservedGenes50thpercentilev2.bed", 
-                  sep = "\t", 
-                  header = FALSE,
-                  col.names = c("chr", "start", "end", "id", "score", "strand"))
+bed_data <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/data/DecoysInConservedGenes50thpercentilev2.bed",
+  sep = "\t",
+  header = FALSE,
+  col.names = c("chr", "start", "end", "id", "score", "strand")
+)
 
 cat("BED file loaded:\n")
 cat("  Total records:", nrow(bed_data), "\n")
@@ -52,8 +53,8 @@ bed_gr <- GRanges(
 )
 
 # Check if coordinate from ID falls within the start-end range
-bed_data$coord_in_range <- bed_data$coord_from_id >= bed_data$start & 
-                           bed_data$coord_from_id <= bed_data$end
+bed_data$coord_in_range <- bed_data$coord_from_id >= bed_data$start &
+  bed_data$coord_from_id <= bed_data$end
 
 # Summary statistics
 total_records <- nrow(bed_data)
@@ -100,7 +101,7 @@ parsed_data_list <- list()
 
 for (species in species_cols) {
   parsed_scores <- lapply(spliceai_data[[species]], parse_score_format)
-  
+
   # Convert to data.table
   species_data <- data.table(
     decoyID = decoy_ids,
@@ -111,7 +112,7 @@ for (species in species_cols) {
     pos2 = sapply(parsed_scores, function(x) x$pos2),
     d = sapply(parsed_scores, function(x) x$d)
   )
-  
+
   parsed_data_list[[species]] <- species_data
 }
 
@@ -146,9 +147,10 @@ cat("  Unique species:", length(unique(all_data_valid$species)), "\n")
 pos2_70_79 <- all_data_valid[pos2 >= 70 & pos2 <= 79]
 cat("\nExtracting rows where pos2 is between 70-79:\n")
 cat("  Number of rows:", nrow(pos2_70_79), "\n")
-fwrite(pos2_70_79, 
-       file = "/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.4/pos2_70_79_filtered.tsv",
-       sep = "\t")
+fwrite(pos2_70_79,
+  file = "/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.4/pos2_70_79_filtered.tsv",
+  sep = "\t"
+)
 cat("  Saved to: pos2_70_79_filtered.tsv\n")
 
 # 2. Extract rows where max1 is less than 0.05
@@ -156,8 +158,9 @@ max1_lt_005 <- all_data_valid[max1 < 0.05]
 cat("\nExtracting rows where max1 < 0.05:\n")
 cat("  Number of rows:", nrow(max1_lt_005), "\n")
 fwrite(max1_lt_005,
-       file = "/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.4/max1_lt_005_filtered.tsv",
-       sep = "\t")
+  file = "/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v2.4/max1_lt_005_filtered.tsv",
+  sep = "\t"
+)
 cat("  Saved to: max1_lt_005_filtered.tsv\n")
 ```
 
@@ -167,41 +170,55 @@ cat("  Saved to: max1_lt_005_filtered.tsv\n")
 # Create histogram comparing pos1 and pos2
 pos_data_long <- all_data_valid %>%
   select(decoyID, species, pos1, pos2) %>%
-  pivot_longer(cols = c(pos1, pos2), 
-               names_to = "position_type", 
-               values_to = "position") %>%
+  pivot_longer(
+    cols = c(pos1, pos2),
+    names_to = "position_type",
+    values_to = "position"
+  ) %>%
   filter(!is.na(position))
 
 p_hist_pos <- ggplot(pos_data_long, aes(x = position, fill = position_type)) +
   geom_histogram(alpha = 0.6, bins = 100, position = "identity") +
-  scale_fill_manual(values = c("pos1" = "steelblue", "pos2" = "salmon"),
-                    labels = c("pos1", "pos2"),
-                    name = "Position Type") +
+  scale_fill_manual(
+    values = c("pos1" = "steelblue", "pos2" = "salmon"),
+    labels = c("pos1", "pos2"),
+    name = "Position Type"
+  ) +
   scale_x_log10() +
-  labs(title = "Distribution of pos1 and pos2 Values (Log Scale)",
-       subtitle = "Comparison of canonical splice site position (pos1) vs secondary position (pos2)",
-       x = "Position (nucleotides from sequence start, log10 scale)",
-       y = "Frequency",
-       caption = paste("Total data points:", nrow(pos_data_long))) +
+  labs(
+    title = "Distribution of pos1 and pos2 Values (Log Scale)",
+    subtitle = "Comparison of canonical splice site position (pos1) vs secondary position (pos2)",
+    x = "Position (nucleotides from sequence start, log10 scale)",
+    y = "Frequency",
+    caption = paste("Total data points:", nrow(pos_data_long))
+  ) +
   theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        plot.subtitle = element_text(size = 12),
-        legend.position = "right") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "right"
+  ) +
   # Add vertical line at position 50 (expected canonical splice site)
   geom_vline(xintercept = 50, linetype = "dashed", color = "red", linewidth = 1) +
-  annotate("text", x = 50, y = Inf, label = "Expected pos1 (~50)", 
-           vjust = 1.5, hjust = 0, color = "red", fontface = "bold")
+  annotate("text",
+    x = 50, y = Inf, label = "Expected pos1 (~50)",
+    vjust = 1.5, hjust = 0, color = "red", fontface = "bold"
+  )
 
 print(p_hist_pos)
 
 # Summary statistics
 cat("\nPosition Summary Statistics:\n")
-cat("  pos1 - Mean:", mean(all_data_valid$pos1, na.rm = TRUE), 
-    "| Median:", median(all_data_valid$pos1, na.rm = TRUE), 
-    "| % < 55:", round(100 * sum(all_data_valid$pos1 < 55, na.rm = TRUE) / nrow(all_data_valid), 2), "%\n")
-cat("  pos2 - Mean:", mean(all_data_valid$pos2, na.rm = TRUE), 
-    "| Median:", median(all_data_valid$pos2, na.rm = TRUE),
-    "| % < 55:", round(100 * sum(all_data_valid$pos2 < 55, na.rm = TRUE) / nrow(all_data_valid), 2), "%\n")
+cat(
+  "  pos1 - Mean:", mean(all_data_valid$pos1, na.rm = TRUE),
+  "| Median:", median(all_data_valid$pos1, na.rm = TRUE),
+  "| % < 55:", round(100 * sum(all_data_valid$pos1 < 55, na.rm = TRUE) / nrow(all_data_valid), 2), "%\n"
+)
+cat(
+  "  pos2 - Mean:", mean(all_data_valid$pos2, na.rm = TRUE),
+  "| Median:", median(all_data_valid$pos2, na.rm = TRUE),
+  "| % < 55:", round(100 * sum(all_data_valid$pos2 < 55, na.rm = TRUE) / nrow(all_data_valid), 2), "%\n"
+)
 ```
 
 ## 2. Scatterplot: max2 > max1 Cases (max2 vs pos2)
@@ -214,30 +231,42 @@ max2_gt_max1_data <- all_data_valid %>%
 
 cat("\nCases where max2 > max1:\n")
 cat("  Total cases:", nrow(max2_gt_max1_data), "\n")
-cat("  Percentage of all valid data:", 
-    round(100 * nrow(max2_gt_max1_data) / nrow(all_data_valid), 2), "%\n")
+cat(
+  "  Percentage of all valid data:",
+  round(100 * nrow(max2_gt_max1_data) / nrow(all_data_valid), 2), "%\n"
+)
 
 p_scatter_max2 <- ggplot(max2_gt_max1_data, aes(x = pos2, y = max2)) +
   geom_point(alpha = 0.3, size = 0.5, color = "darkgreen") +
   geom_smooth(method = "loess", se = TRUE, color = "red", linewidth = 1.5) +
   scale_x_log10() +
-  labs(title = "Scatterplot: max2 vs pos2 (when max2 > max1, Log Scale)",
-       subtitle = paste("Cases where secondary score exceeds primary score (n =", 
-                       format(nrow(max2_gt_max1_data), big.mark = ","), ")"),
-       x = "pos2 (position of max2, log10 scale)",
-       y = "max2 (SpliceAI score)",
-       caption = "Red line shows LOESS smoothing trend") +
+  labs(
+    title = "Scatterplot: max2 vs pos2 (when max2 > max1, Log Scale)",
+    subtitle = paste(
+      "Cases where secondary score exceeds primary score (n =",
+      format(nrow(max2_gt_max1_data), big.mark = ","), ")"
+    ),
+    x = "pos2 (position of max2, log10 scale)",
+    y = "max2 (SpliceAI score)",
+    caption = "Red line shows LOESS smoothing trend"
+  ) +
   theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        plot.subtitle = element_text(size = 12)) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12)
+  ) +
   scale_y_continuous(limits = c(0, 1)) +
   # Add reference lines
   geom_hline(yintercept = 0.1, linetype = "dashed", color = "blue", alpha = 0.5) +
   geom_hline(yintercept = 0.5, linetype = "dashed", color = "blue", alpha = 0.5) +
-  annotate("text", x = Inf, y = 0.1, label = "max2 = 0.1", 
-           hjust = 1.1, vjust = -0.5, color = "blue", size = 3) +
-  annotate("text", x = Inf, y = 0.5, label = "max2 = 0.5", 
-           hjust = 1.1, vjust = -0.5, color = "blue", size = 3)
+  annotate("text",
+    x = Inf, y = 0.1, label = "max2 = 0.1",
+    hjust = 1.1, vjust = -0.5, color = "blue", size = 3
+  ) +
+  annotate("text",
+    x = Inf, y = 0.5, label = "max2 = 0.5",
+    hjust = 1.1, vjust = -0.5, color = "blue", size = 3
+  )
 
 print(p_scatter_max2)
 ```
@@ -248,9 +277,11 @@ print(p_scatter_max2)
 # Prepare data for density plots
 density_data <- all_data_valid %>%
   select(max1, pos1, max2, pos2) %>%
-  pivot_longer(cols = everything(), 
-               names_to = "statistic", 
-               values_to = "value") %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "statistic",
+    values_to = "value"
+  ) %>%
   filter(!is.na(value))
 
 # Create separate plots for pos1/pos2 with log scale and max1/max2 without log scale
@@ -259,40 +290,52 @@ density_data_score <- density_data %>% filter(statistic %in% c("max1", "max2"))
 
 p_density_pos <- ggplot(density_data_pos, aes(x = value, fill = statistic)) +
   geom_density(alpha = 0.6, linewidth = 1) +
-  facet_wrap(~ statistic, scales = "free", ncol = 2,
-             labeller = labeller(statistic = c(
-               "pos1" = "pos1 (Position of max1, Log Scale)",
-               "pos2" = "pos2 (Position of max2, Log Scale)"
-             ))) +
+  facet_wrap(~statistic,
+    scales = "free", ncol = 2,
+    labeller = labeller(statistic = c(
+      "pos1" = "pos1 (Position of max1, Log Scale)",
+      "pos2" = "pos2 (Position of max2, Log Scale)"
+    ))
+  ) +
   scale_fill_viridis_d(option = "plasma", name = "Statistic") +
   scale_x_log10() +
-  labs(title = "Distribution (Density) of Position Statistics (Log Scale)",
-       subtitle = "Bell curves showing the distribution of pos1 and pos2",
-       x = "Value (log10 scale)",
-       y = "Density") +
+  labs(
+    title = "Distribution (Density) of Position Statistics (Log Scale)",
+    subtitle = "Bell curves showing the distribution of pos1 and pos2",
+    x = "Value (log10 scale)",
+    y = "Density"
+  ) +
   theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        plot.subtitle = element_text(size = 12),
-        strip.text = element_text(size = 11, face = "bold"),
-        legend.position = "none")
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "bold"),
+    legend.position = "none"
+  )
 
 p_density_score <- ggplot(density_data_score, aes(x = value, fill = statistic)) +
   geom_density(alpha = 0.6, linewidth = 1) +
-  facet_wrap(~ statistic, scales = "free", ncol = 2,
-             labeller = labeller(statistic = c(
-               "max1" = "max1 (Primary SpliceAI Score)",
-               "max2" = "max2 (Secondary SpliceAI Score)"
-             ))) +
+  facet_wrap(~statistic,
+    scales = "free", ncol = 2,
+    labeller = labeller(statistic = c(
+      "max1" = "max1 (Primary SpliceAI Score)",
+      "max2" = "max2 (Secondary SpliceAI Score)"
+    ))
+  ) +
   scale_fill_viridis_d(option = "plasma", name = "Statistic") +
-  labs(title = "Distribution (Density) of Score Statistics",
-       subtitle = "Bell curves showing the distribution of max1 and max2",
-       x = "Value",
-       y = "Density") +
+  labs(
+    title = "Distribution (Density) of Score Statistics",
+    subtitle = "Bell curves showing the distribution of max1 and max2",
+    x = "Value",
+    y = "Density"
+  ) +
   theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        plot.subtitle = element_text(size = 12),
-        strip.text = element_text(size = 11, face = "bold"),
-        legend.position = "none")
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "bold"),
+    legend.position = "none"
+  )
 
 print(p_density_pos)
 print(p_density_score)
@@ -301,13 +344,15 @@ print(p_density_score)
 cat("\nSummary Statistics by Statistic:\n")
 for (stat in c("max1", "pos1", "max2", "pos2")) {
   stat_data <- density_data %>% filter(statistic == stat)
-  cat(sprintf("  %s: Mean = %.3f, Median = %.3f, SD = %.3f, Range = [%.3f, %.3f]\n",
-              stat,
-              mean(stat_data$value, na.rm = TRUE),
-              median(stat_data$value, na.rm = TRUE),
-              sd(stat_data$value, na.rm = TRUE),
-              min(stat_data$value, na.rm = TRUE),
-              max(stat_data$value, na.rm = TRUE)))
+  cat(sprintf(
+    "  %s: Mean = %.3f, Median = %.3f, SD = %.3f, Range = [%.3f, %.3f]\n",
+    stat,
+    mean(stat_data$value, na.rm = TRUE),
+    median(stat_data$value, na.rm = TRUE),
+    sd(stat_data$value, na.rm = TRUE),
+    min(stat_data$value, na.rm = TRUE),
+    max(stat_data$value, na.rm = TRUE)
+  ))
 }
 ```
 
@@ -331,7 +376,7 @@ max2_matrix_data <- all_data_valid %>%
   pivot_wider(names_from = decoyID, values_from = max2)
 
 # Set species as row names and convert to matrix
-max2_matrix <- as.matrix(max2_matrix_data[, -1])  # Exclude species column
+max2_matrix <- as.matrix(max2_matrix_data[, -1]) # Exclude species column
 rownames(max2_matrix) <- max2_matrix_data$species
 
 # Replace NA with -1 for visualization (missing data)
@@ -381,10 +426,10 @@ pheatmap(
   max2_matrix,
   color = color_gradient,
   breaks = c(-1.5, seq(-0.5, 1, length.out = n_colors + 1)),
-  cluster_rows = FALSE,  # Keep species in Newick order
+  cluster_rows = FALSE, # Keep species in Newick order
   cluster_cols = TRUE,
   show_rownames = TRUE,
-  show_colnames = FALSE,  # Too many decoy IDs to show
+  show_colnames = FALSE, # Too many decoy IDs to show
   main = "Heatmap of max2 (Secondary SpliceAI Scores) - Species Ordered by Newick Tree",
   fontsize_row = 8,
   fontsize_col = 6,
@@ -402,26 +447,34 @@ pheatmap(
 pos1_analysis <- all_data_valid %>%
   filter(!is.na(pos1)) %>%
   mutate(
-    pos1_bin = cut(pos1, breaks = c(0, 30, 40, 50, 60, 70, 100, 200, Inf),
-                   labels = c("0-30", "31-40", "41-50", "51-60", "61-70", "71-100", "101-200", "200+"))
+    pos1_bin = cut(pos1,
+      breaks = c(0, 30, 40, 50, 60, 70, 100, 200, Inf),
+      labels = c("0-30", "31-40", "41-50", "51-60", "61-70", "71-100", "101-200", "200+")
+    )
   )
 
 p_pos1_bins <- ggplot(pos1_analysis, aes(x = pos1_bin, fill = pos1_bin)) +
   geom_bar(stat = "count", alpha = 0.7) +
   scale_fill_viridis_d(option = "plasma") +
-  labs(title = "Distribution of pos1 Values by Position Bins",
-       subtitle = "Checking if canonical splice sites cluster around position 50",
-       x = "Position Bin (nucleotides)",
-       y = "Count",
-       caption = paste("Expected canonical splice site position: ~50 nt")) +
+  labs(
+    title = "Distribution of pos1 Values by Position Bins",
+    subtitle = "Checking if canonical splice sites cluster around position 50",
+    x = "Position Bin (nucleotides)",
+    y = "Count",
+    caption = paste("Expected canonical splice site position: ~50 nt")
+  ) +
   theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        plot.subtitle = element_text(size = 12),
-        axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.position = "none") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  ) +
   geom_vline(xintercept = 3.5, linetype = "dashed", color = "red", linewidth = 1) +
-  annotate("text", x = 3.5, y = Inf, label = "Expected range\n(41-60)", 
-           vjust = 1.5, hjust = 0.5, color = "red", fontface = "bold")
+  annotate("text",
+    x = 3.5, y = Inf, label = "Expected range\n(41-60)",
+    vjust = 1.5, hjust = 0.5, color = "red", fontface = "bold"
+  )
 
 print(p_pos1_bins)
 
@@ -450,20 +503,34 @@ max1_high <- sum(all_data_valid$max1 > 0.8, na.rm = TRUE)
 max2_gt_max1 <- sum(all_data_valid$max2 > all_data_valid$max1, na.rm = TRUE)
 
 cat("Key Validation Metrics:\n")
-cat(sprintf("  1. pos1 in expected range (40-60 nt): %d (%.2f%%)\n", 
-            pos1_near_50, 100 * pos1_near_50 / total_valid))
-cat(sprintf("  2. pos1 < 55 nt: %d (%.2f%%)\n", 
-            pos1_lt_55, 100 * pos1_lt_55 / total_valid))
-cat(sprintf("  3. pos2 < 55 nt: %d (%.2f%%)\n", 
-            pos2_lt_55, 100 * pos2_lt_55 / total_valid))
-cat(sprintf("  4. max1 > 0.8 (high confidence): %d (%.2f%%)\n", 
-            max1_high, 100 * max1_high / total_valid))
-cat(sprintf("  5. max2 > max1 (secondary site stronger): %d (%.2f%%)\n", 
-            max2_gt_max1, 100 * max2_gt_max1 / total_valid))
-cat(sprintf("  6. Mean pos1: %.2f nt (expected ~50 nt)\n", 
-            mean(all_data_valid$pos1, na.rm = TRUE)))
-cat(sprintf("  7. Median pos1: %.2f nt\n", 
-            median(all_data_valid$pos1, na.rm = TRUE)))
+cat(sprintf(
+  "  1. pos1 in expected range (40-60 nt): %d (%.2f%%)\n",
+  pos1_near_50, 100 * pos1_near_50 / total_valid
+))
+cat(sprintf(
+  "  2. pos1 < 55 nt: %d (%.2f%%)\n",
+  pos1_lt_55, 100 * pos1_lt_55 / total_valid
+))
+cat(sprintf(
+  "  3. pos2 < 55 nt: %d (%.2f%%)\n",
+  pos2_lt_55, 100 * pos2_lt_55 / total_valid
+))
+cat(sprintf(
+  "  4. max1 > 0.8 (high confidence): %d (%.2f%%)\n",
+  max1_high, 100 * max1_high / total_valid
+))
+cat(sprintf(
+  "  5. max2 > max1 (secondary site stronger): %d (%.2f%%)\n",
+  max2_gt_max1, 100 * max2_gt_max1 / total_valid
+))
+cat(sprintf(
+  "  6. Mean pos1: %.2f nt (expected ~50 nt)\n",
+  mean(all_data_valid$pos1, na.rm = TRUE)
+))
+cat(sprintf(
+  "  7. Median pos1: %.2f nt\n",
+  median(all_data_valid$pos1, na.rm = TRUE)
+))
 
 cat("\nInterpretation:\n")
 if (mean(all_data_valid$pos1, na.rm = TRUE) > 40 && mean(all_data_valid$pos1, na.rm = TRUE) < 60) {
@@ -489,8 +556,10 @@ cat("\n", paste0(rep("=", 80), collapse = ""), "\n")
 
 cat("\nDataset Summary:\n")
 cat("  Total valid data points:", nrow(all_data_valid), "\n")
-cat("  Data points with d > 0.2:", sum(all_data_valid$d > 0.2, na.rm = TRUE), 
-    sprintf("(%.2f%%)\n", 100 * sum(all_data_valid$d > 0.2, na.rm = TRUE) / nrow(all_data_valid)))
+cat(
+  "  Data points with d > 0.2:", sum(all_data_valid$d > 0.2, na.rm = TRUE),
+  sprintf("(%.2f%%)\n", 100 * sum(all_data_valid$d > 0.2, na.rm = TRUE) / nrow(all_data_valid))
+)
 ```
 
 ## 8. Additional Analysis (No Filtering Applied)
@@ -500,39 +569,53 @@ cat("  Data points with d > 0.2:", sum(all_data_valid$d > 0.2, na.rm = TRUE),
 # Using all_data_valid (no filtering applied)
 pos_data_long_filtered <- all_data_valid %>%
   select(decoyID, species, pos1, pos2) %>%
-  pivot_longer(cols = c(pos1, pos2), 
-               names_to = "position_type", 
-               values_to = "position") %>%
+  pivot_longer(
+    cols = c(pos1, pos2),
+    names_to = "position_type",
+    values_to = "position"
+  ) %>%
   filter(!is.na(position))
 
 p_hist_pos_filtered <- ggplot(pos_data_long_filtered, aes(x = position, fill = position_type)) +
   geom_histogram(alpha = 0.6, bins = 100, position = "identity") +
-  scale_fill_manual(values = c("pos1" = "steelblue", "pos2" = "salmon"),
-                    labels = c("pos1", "pos2"),
-                    name = "Position Type") +
-  labs(title = "Distribution of pos1 and pos2 Values",
-       subtitle = "All valid data points",
-       x = "Position (nucleotides from sequence start)",
-       y = "Frequency",
-       caption = paste("Total data points:", nrow(pos_data_long_filtered))) +
+  scale_fill_manual(
+    values = c("pos1" = "steelblue", "pos2" = "salmon"),
+    labels = c("pos1", "pos2"),
+    name = "Position Type"
+  ) +
+  labs(
+    title = "Distribution of pos1 and pos2 Values",
+    subtitle = "All valid data points",
+    x = "Position (nucleotides from sequence start)",
+    y = "Frequency",
+    caption = paste("Total data points:", nrow(pos_data_long_filtered))
+  ) +
   theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        plot.subtitle = element_text(size = 12),
-        legend.position = "right") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "right"
+  ) +
   # Add vertical line at position 50 (expected canonical splice site)
   geom_vline(xintercept = 50, linetype = "dashed", color = "red", linewidth = 1) +
-  annotate("text", x = 50, y = Inf, label = "Expected pos1 (~50)", 
-           vjust = 1.5, hjust = 0, color = "red", fontface = "bold")
+  annotate("text",
+    x = 50, y = Inf, label = "Expected pos1 (~50)",
+    vjust = 1.5, hjust = 0, color = "red", fontface = "bold"
+  )
 
 print(p_hist_pos_filtered)
 
 # Summary statistics
 cat("\nPosition Summary Statistics:\n")
-cat("  pos1 - Mean:", mean(all_data_valid$pos1, na.rm = TRUE), 
-    "| Median:", median(all_data_valid$pos1, na.rm = TRUE), 
-    "| % < 55:", round(100 * sum(all_data_valid$pos1 < 55, na.rm = TRUE) / nrow(all_data_valid), 2), "%\n")
-cat("  pos2 - Mean:", mean(all_data_valid$pos2, na.rm = TRUE), 
-    "| Median:", median(all_data_valid$pos2, na.rm = TRUE), "\n")
+cat(
+  "  pos1 - Mean:", mean(all_data_valid$pos1, na.rm = TRUE),
+  "| Median:", median(all_data_valid$pos1, na.rm = TRUE),
+  "| % < 55:", round(100 * sum(all_data_valid$pos1 < 55, na.rm = TRUE) / nrow(all_data_valid), 2), "%\n"
+)
+cat(
+  "  pos2 - Mean:", mean(all_data_valid$pos2, na.rm = TRUE),
+  "| Median:", median(all_data_valid$pos2, na.rm = TRUE), "\n"
+)
 ```
 
 ```{r filtered-scatterplot-max2-gt-max1}
@@ -543,29 +626,41 @@ max2_gt_max1_data_filtered <- all_data_valid %>%
 
 cat("\nCases where max2 > max1:\n")
 cat("  Total cases:", nrow(max2_gt_max1_data_filtered), "\n")
-cat("  Percentage of all valid data:", 
-    round(100 * nrow(max2_gt_max1_data_filtered) / nrow(all_data_valid), 2), "%\n")
+cat(
+  "  Percentage of all valid data:",
+  round(100 * nrow(max2_gt_max1_data_filtered) / nrow(all_data_valid), 2), "%\n"
+)
 
 p_scatter_max2_filtered <- ggplot(max2_gt_max1_data_filtered, aes(x = pos2, y = max2)) +
   geom_point(alpha = 0.3, size = 0.5, color = "darkgreen") +
   geom_smooth(method = "loess", se = TRUE, color = "red", linewidth = 1.5) +
-  labs(title = "Scatterplot: max2 vs pos2 (when max2 > max1)",
-       subtitle = paste("All valid data points (n =", 
-                       format(nrow(max2_gt_max1_data_filtered), big.mark = ","), ")"),
-       x = "pos2 (position of max2)",
-       y = "max2 (SpliceAI score)",
-       caption = "Red line shows LOESS smoothing trend") +
+  labs(
+    title = "Scatterplot: max2 vs pos2 (when max2 > max1)",
+    subtitle = paste(
+      "All valid data points (n =",
+      format(nrow(max2_gt_max1_data_filtered), big.mark = ","), ")"
+    ),
+    x = "pos2 (position of max2)",
+    y = "max2 (SpliceAI score)",
+    caption = "Red line shows LOESS smoothing trend"
+  ) +
   theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        plot.subtitle = element_text(size = 12)) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12)
+  ) +
   scale_y_continuous(limits = c(0, 1)) +
   # Add reference lines
   geom_hline(yintercept = 0.1, linetype = "dashed", color = "blue", alpha = 0.5) +
   geom_hline(yintercept = 0.5, linetype = "dashed", color = "blue", alpha = 0.5) +
-  annotate("text", x = Inf, y = 0.1, label = "max2 = 0.1", 
-           hjust = 1.1, vjust = -0.5, color = "blue", size = 3) +
-  annotate("text", x = Inf, y = 0.5, label = "max2 = 0.5", 
-           hjust = 1.1, vjust = -0.5, color = "blue", size = 3)
+  annotate("text",
+    x = Inf, y = 0.1, label = "max2 = 0.1",
+    hjust = 1.1, vjust = -0.5, color = "blue", size = 3
+  ) +
+  annotate("text",
+    x = Inf, y = 0.5, label = "max2 = 0.5",
+    hjust = 1.1, vjust = -0.5, color = "blue", size = 3
+  )
 
 print(p_scatter_max2_filtered)
 ```
@@ -574,9 +669,11 @@ print(p_scatter_max2_filtered)
 # Prepare data for density plots
 density_data_filtered <- all_data_valid %>%
   select(max1, pos1, max2, pos2) %>%
-  pivot_longer(cols = everything(), 
-               names_to = "statistic", 
-               values_to = "value") %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "statistic",
+    values_to = "value"
+  ) %>%
   filter(!is.na(value))
 
 # Create density plots (NO LOG SCALE)
@@ -585,39 +682,51 @@ density_data_score_filtered <- density_data_filtered %>% filter(statistic %in% c
 
 p_density_pos_filtered <- ggplot(density_data_pos_filtered, aes(x = value, fill = statistic)) +
   geom_density(alpha = 0.6, linewidth = 1) +
-  facet_wrap(~ statistic, scales = "free", ncol = 2,
-             labeller = labeller(statistic = c(
-               "pos1" = "pos1 (Position of max1)",
-               "pos2" = "pos2 (Position of max2)"
-             ))) +
+  facet_wrap(~statistic,
+    scales = "free", ncol = 2,
+    labeller = labeller(statistic = c(
+      "pos1" = "pos1 (Position of max1)",
+      "pos2" = "pos2 (Position of max2)"
+    ))
+  ) +
   scale_fill_viridis_d(option = "plasma", name = "Statistic") +
-  labs(title = "Distribution (Density) of Position Statistics",
-       subtitle = "All valid data points",
-       x = "Value",
-       y = "Density") +
+  labs(
+    title = "Distribution (Density) of Position Statistics",
+    subtitle = "All valid data points",
+    x = "Value",
+    y = "Density"
+  ) +
   theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        plot.subtitle = element_text(size = 12),
-        strip.text = element_text(size = 11, face = "bold"),
-        legend.position = "none")
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "bold"),
+    legend.position = "none"
+  )
 
 p_density_score_filtered <- ggplot(density_data_score_filtered, aes(x = value, fill = statistic)) +
   geom_density(alpha = 0.6, linewidth = 1) +
-  facet_wrap(~ statistic, scales = "free", ncol = 2,
-             labeller = labeller(statistic = c(
-               "max1" = "max1 (Primary SpliceAI Score)",
-               "max2" = "max2 (Secondary SpliceAI Score)"
-             ))) +
+  facet_wrap(~statistic,
+    scales = "free", ncol = 2,
+    labeller = labeller(statistic = c(
+      "max1" = "max1 (Primary SpliceAI Score)",
+      "max2" = "max2 (Secondary SpliceAI Score)"
+    ))
+  ) +
   scale_fill_viridis_d(option = "plasma", name = "Statistic") +
-  labs(title = "Distribution (Density) of Score Statistics",
-       subtitle = "All valid data points",
-       x = "Value",
-       y = "Density") +
+  labs(
+    title = "Distribution (Density) of Score Statistics",
+    subtitle = "All valid data points",
+    x = "Value",
+    y = "Density"
+  ) +
   theme_minimal() +
-  theme(plot.title = element_text(size = 16, face = "bold"),
-        plot.subtitle = element_text(size = 12),
-        strip.text = element_text(size = 11, face = "bold"),
-        legend.position = "none")
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "bold"),
+    legend.position = "none"
+  )
 
 print(p_density_pos_filtered)
 print(p_density_score_filtered)
@@ -626,13 +735,15 @@ print(p_density_score_filtered)
 cat("\nSummary Statistics by Statistic:\n")
 for (stat in c("max1", "pos1", "max2", "pos2")) {
   stat_data <- density_data_filtered %>% filter(statistic == stat)
-  cat(sprintf("  %s: Mean = %.3f, Median = %.3f, SD = %.3f, Range = [%.3f, %.3f]\n",
-              stat,
-              mean(stat_data$value, na.rm = TRUE),
-              median(stat_data$value, na.rm = TRUE),
-              sd(stat_data$value, na.rm = TRUE),
-              min(stat_data$value, na.rm = TRUE),
-              max(stat_data$value, na.rm = TRUE)))
+  cat(sprintf(
+    "  %s: Mean = %.3f, Median = %.3f, SD = %.3f, Range = [%.3f, %.3f]\n",
+    stat,
+    mean(stat_data$value, na.rm = TRUE),
+    median(stat_data$value, na.rm = TRUE),
+    sd(stat_data$value, na.rm = TRUE),
+    min(stat_data$value, na.rm = TRUE),
+    max(stat_data$value, na.rm = TRUE)
+  ))
 }
 ```
 
@@ -644,7 +755,7 @@ max2_matrix_data_filtered <- all_data_valid %>%
   pivot_wider(names_from = decoyID, values_from = max2)
 
 # Set species as row names and convert to matrix
-max2_matrix_filtered <- as.matrix(max2_matrix_data_filtered[, -1])  # Exclude species column
+max2_matrix_filtered <- as.matrix(max2_matrix_data_filtered[, -1]) # Exclude species column
 rownames(max2_matrix_filtered) <- max2_matrix_data_filtered$species
 
 # Replace NA with -1 for visualization (missing data)
@@ -704,10 +815,10 @@ pheatmap(
   max2_matrix_filtered,
   color = color_gradient_filtered,
   breaks = c(-1.5, -0.5, seq(-0.2, 1, length.out = n_colors_filtered + 1)),
-  cluster_rows = FALSE,  # Keep species in Newick order
+  cluster_rows = FALSE, # Keep species in Newick order
   cluster_cols = TRUE,
   show_rownames = TRUE,
-  show_colnames = FALSE,  # Too many decoy IDs to show
+  show_colnames = FALSE, # Too many decoy IDs to show
   main = "Heatmap of max2 (Filtered: d > 0.2 shown in dark purple) - Species Ordered by Newick Tree",
   fontsize_row = 8,
   fontsize_col = 6,
@@ -726,7 +837,7 @@ max2_matrix_data_filtered_d04 <- all_data_valid %>%
   pivot_wider(names_from = decoyID, values_from = max2)
 
 # Set species as row names and convert to matrix
-max2_matrix_filtered_d04 <- as.matrix(max2_matrix_data_filtered_d04[, -1])  # Exclude species column
+max2_matrix_filtered_d04 <- as.matrix(max2_matrix_data_filtered_d04[, -1]) # Exclude species column
 rownames(max2_matrix_filtered_d04) <- max2_matrix_data_filtered_d04$species
 
 # Replace NA with -1 for visualization (missing data)
@@ -787,10 +898,10 @@ pheatmap(
   max2_matrix_filtered_d04,
   color = color_gradient_filtered_d04,
   breaks = c(-1.5, -0.5, seq(-0.2, 1, length.out = n_colors_filtered_d04 + 1)),
-  cluster_rows = FALSE,  # Keep species in Newick order
+  cluster_rows = FALSE, # Keep species in Newick order
   cluster_cols = TRUE,
   show_rownames = TRUE,
-  show_colnames = FALSE,  # Too many decoy IDs to show
+  show_colnames = FALSE, # Too many decoy IDs to show
   main = "Heatmap of max2 (Filtered: d > 0.4 shown in dark purple) - Species Ordered by Newick Tree",
   fontsize_row = 8,
   fontsize_col = 6,
@@ -809,7 +920,7 @@ max2_matrix_data_filtered_d07 <- all_data_valid %>%
   pivot_wider(names_from = decoyID, values_from = max2)
 
 # Set species as row names and convert to matrix
-max2_matrix_filtered_d07 <- as.matrix(max2_matrix_data_filtered_d07[, -1])  # Exclude species column
+max2_matrix_filtered_d07 <- as.matrix(max2_matrix_data_filtered_d07[, -1]) # Exclude species column
 rownames(max2_matrix_filtered_d07) <- max2_matrix_data_filtered_d07$species
 
 # Replace NA with -1 for visualization (missing data)
@@ -869,10 +980,10 @@ pheatmap(
   max2_matrix_filtered_d07,
   color = color_gradient_filtered_d07,
   breaks = c(-1.5, -0.5, seq(-0.2, 1, length.out = n_colors_filtered_d07 + 1)),
-  cluster_rows = FALSE,  # Keep species in Newick order
+  cluster_rows = FALSE, # Keep species in Newick order
   cluster_cols = TRUE,
   show_rownames = TRUE,
-  show_colnames = FALSE,  # Too many decoy IDs to show
+  show_colnames = FALSE, # Too many decoy IDs to show
   main = "Heatmap of max2 (Filtered: d > 0.7 shown in dark purple) - Species Ordered by Newick Tree",
   fontsize_row = 8,
   fontsize_col = 6,

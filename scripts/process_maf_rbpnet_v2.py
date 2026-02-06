@@ -2,8 +2,9 @@
 """
 Process MAF files: extract FASTA with msa_view, run RBPnet, output TSV with top scores and positions per species
 Output format:
-- Top 3 scores from first 100 nt: [css1][cps1][css2][cps2][css3][cps3]
-- All scores > 0.02 after position 100: [int1][ips1][int2][ips2][int3][ips3][int*][ips*] (variable length)
+- Top 3 scores from first 100 nt (5' splice site): [css1][cps1][css2][cps2][css3][cps3]
+- Top 3 scores from last 100 nt (3' splice site): [css1_3p][cps1_3p][css2_3p][cps2_3p][css3_3p][cps3_3p]
+- All scores > 0.02 between position 100 and (length - 100): [int1][ips1][int2][ips2][int3][ips3][int*][ips*] (variable length)
 """
 
 import os
@@ -125,7 +126,7 @@ def parse_rbpnet_tsv(rbpnet_tsv_file, debug=False):
 
 def find_top3_canonical_scores(profile_data, debug=False):
     """
-    Find top 3 scores in first 100 nucleotides
+    Find top 3 scores in first 100 nucleotides (5' splice site)
     Returns: list of (score, position) tuples, sorted by score descending
     """
     if profile_data is None or len(profile_data) == 0:
@@ -149,20 +150,71 @@ def find_top3_canonical_scores(profile_data, debug=False):
     result = [(score, pos) for pos, score in top3]
     
     if debug:
-        print(f"    Top 3 canonical scores (first 100nt): {result}", file=sys.stderr)
+        print(f"    Top 3 canonical scores (5' splice site, first 100nt): {result}", file=sys.stderr)
+    
+    return result
+
+def find_top3_canonical_scores_3p(profile_data, debug=False):
+    """
+    Find top 3 scores in last 100 nucleotides (3' splice site)
+    Returns: list of (score, position) tuples, sorted by score descending
+    """
+    if profile_data is None or len(profile_data) == 0:
+        return [(-1.0, -1), (-1.0, -1), (-1.0, -1)]
+    
+    # Get sequence length
+    seq_length = len(profile_data)
+    
+    if seq_length <= 100:
+        # If sequence is <= 100 nt, return -1 for all
+        return [(-1.0, -1), (-1.0, -1), (-1.0, -1)]
+    
+    # Filter to last 100 positions
+    last_100_start = seq_length - 100
+    last_100 = [(pos, score) for pos, score in profile_data if pos >= last_100_start]
+    
+    if len(last_100) == 0:
+        return [(-1.0, -1), (-1.0, -1), (-1.0, -1)]
+    
+    # Sort by score descending and take top 3
+    last_100_sorted = sorted(last_100, key=lambda x: x[1], reverse=True)
+    top3 = last_100_sorted[:3]
+    
+    # Pad to 3 if needed
+    while len(top3) < 3:
+        top3.append((-1.0, -1))
+    
+    # Return as (score, position) tuples
+    result = [(score, pos) for pos, score in top3]
+    
+    if debug:
+        print(f"    Top 3 canonical scores (3' splice site, last 100nt): {result}", file=sys.stderr)
     
     return result
 
 def find_intronic_scores(profile_data, threshold=0.02, debug=False):
     """
-    Find all scores > threshold after position 100
+    Find all scores > threshold between position 100 and (length - 100)
     Returns: list of (score, position) tuples, sorted by position ascending
     """
     if profile_data is None or len(profile_data) == 0:
         return []
     
-    # Filter to positions >= 100 with score > threshold
-    intronic = [(pos, score) for pos, score in profile_data if pos >= 100 and score > threshold]
+    # Get sequence length
+    seq_length = len(profile_data)
+    
+    # Calculate end position for intronic region (exclude last 100 nt)
+    intronic_end = seq_length - 100
+    
+    # If sequence is too short (<= 200 nt), no intronic region
+    if seq_length <= 200:
+        if debug:
+            print(f"    Sequence too short ({seq_length} nt) for intronic region (need > 200 nt)", file=sys.stderr)
+        return []
+    
+    # Filter to positions >= 100 and < (length - 100) with score > threshold
+    intronic = [(pos, score) for pos, score in profile_data 
+                if pos >= 100 and pos < intronic_end and score > threshold]
     
     # Sort by position ascending
     intronic_sorted = sorted(intronic, key=lambda x: x[0])
@@ -172,30 +224,35 @@ def find_intronic_scores(profile_data, threshold=0.02, debug=False):
     
     if debug:
         if len(result) > 0:
-            print(f"    Found {len(result)} intronic scores > {threshold} (>=100nt): {result[:5]}...", file=sys.stderr)
+            print(f"    Found {len(result)} intronic scores > {threshold} (100-{intronic_end}nt): {result[:5]}...", file=sys.stderr)
         else:
-            print(f"    No intronic scores > {threshold} found", file=sys.stderr)
+            print(f"    No intronic scores > {threshold} found in region 100-{intronic_end}nt", file=sys.stderr)
     
     return result
 
-def format_rbpnet_output(canonical_scores, intronic_scores):
+def format_rbpnet_output(canonical_scores_5p, canonical_scores_3p, intronic_scores):
     """
     Format output as:
-    [css1][cps1][css2][cps2][css3][cps3][int1][ips1][int2][ips2][int3][ips3][int*][ips*]...
+    [css1][cps1][css2][cps2][css3][cps3][css1_3p][cps1_3p][css2_3p][cps2_3p][css3_3p][cps3_3p][int1][ips1][int2][ips2][int3][ips3][int*][ips*]...
     """
     parts = []
     
-    # Add top 3 canonical scores
-    for score, pos in canonical_scores:
+    # Add top 3 canonical scores from 5' splice site (first 100 nt)
+    for score, pos in canonical_scores_5p:
+        parts.append(f"[{score:.6f}][{pos}]")
+    
+    # Add top 3 canonical scores from 3' splice site (last 100 nt)
+    for score, pos in canonical_scores_3p:
         parts.append(f"[{score:.6f}][{pos}]")
     
     # Add intronic scores (variable length)
     for score, pos in intronic_scores:
         parts.append(f"[{score:.6f}][{pos}]")
     
-    # If no data, return all -1
-    if len(parts) == 0 or all(score == -1.0 for score, _ in canonical_scores):
-        return "[-1.0][-1][-1.0][-1][-1.0][-1]"
+    # If no data, return all -1 (6 values for 5' and 3' canonical scores)
+    if len(parts) == 0 or (all(score == -1.0 for score, _ in canonical_scores_5p) and 
+                           all(score == -1.0 for score, _ in canonical_scores_3p)):
+        return "[-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1]"
     
     return "".join(parts)
 
@@ -276,14 +333,14 @@ def process_sequence_with_rbpnet(sequence, species_id, rbpnet_bin, rbpnet_model,
     if len(sequence_clean) == 0:
         if debug:
             print(f"    Skipping {species_id}: empty sequence after removing gaps", file=sys.stderr)
-        return "[-1.0][-1][-1.0][-1][-1.0][-1]"
+        return "[-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1]"
     
     # Check if sequence has any actual nucleotides (not just N's)
     sequence_no_n = sequence_clean.replace('N', '').replace('n', '')
     if len(sequence_no_n) == 0:
         if debug:
             print(f"    Skipping {species_id}: sequence contains only N's", file=sys.stderr)
-        return "[-1.0][-1][-1.0][-1][-1.0][-1]"
+        return "[-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1]"
     
     # Create temporary FASTA file for this sequence
     temp_fasta = os.path.join(temp_dir, f"{species_id}_temp.fa")
@@ -311,16 +368,19 @@ def process_sequence_with_rbpnet(sequence, species_id, rbpnet_bin, rbpnet_model,
         profile_data = parse_rbpnet_tsv(temp_tsv, debug=debug)
         
         if profile_data is None:
-            return "[-1.0][-1][-1.0][-1][-1.0][-1]"
+            return "[-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1]"
         
-        # Find top 3 canonical scores (first 100 nt)
-        canonical_scores = find_top3_canonical_scores(profile_data, debug=debug)
+        # Find top 3 canonical scores (5' splice site, first 100 nt)
+        canonical_scores_5p = find_top3_canonical_scores(profile_data, debug=debug)
         
-        # Find intronic scores (> 0.02 after position 100)
+        # Find top 3 canonical scores (3' splice site, last 100 nt)
+        canonical_scores_3p = find_top3_canonical_scores_3p(profile_data, debug=debug)
+        
+        # Find intronic scores (> 0.02 between position 100 and (length - 100))
         intronic_scores = find_intronic_scores(profile_data, threshold=0.02, debug=debug)
         
         # Format output
-        formatted = format_rbpnet_output(canonical_scores, intronic_scores)
+        formatted = format_rbpnet_output(canonical_scores_5p, canonical_scores_3p, intronic_scores)
         
         if debug:
             print(f"    {species_id}: formatted output length={len(formatted)}", file=sys.stderr)
@@ -330,11 +390,11 @@ def process_sequence_with_rbpnet(sequence, species_id, rbpnet_bin, rbpnet_model,
     except subprocess.CalledProcessError as e:
         if debug:
             print(f"    WARNING: RBPnet failed for {species_id}: {e.stderr}", file=sys.stderr)
-        return "[-1.0][-1][-1.0][-1][-1.0][-1]"
+        return "[-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1]"
     except Exception as e:
         if debug:
             print(f"    WARNING: Error processing {species_id}: {e}", file=sys.stderr)
-        return "[-1.0][-1][-1.0][-1][-1.0][-1]"
+        return "[-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1]"
     finally:
         # Clean up temporary files
         for temp_file in [temp_fasta, temp_tsv]:
@@ -360,13 +420,13 @@ def process_maf_file(maf_file, msa_view_bin, strand_map, rbpnet_bin, rbpnet_mode
     fasta_file = extract_fasta_from_maf(maf_file, msa_view_bin, strand, temp_dir, debug=debug)
     if fasta_file is None:
         # Return -1 for all species if extraction failed
-        return {species: "[-1.0][-1][-1.0][-1][-1.0][-1]" for species in all_species}
+        return {species: "[-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1]" for species in all_species}
     
     # Check if FASTA file has content
     if os.path.getsize(fasta_file) == 0:
         if debug:
             print(f"  WARNING: Empty FASTA file for {decoy_id}", file=sys.stderr)
-        return {species: "[-1.0][-1][-1.0][-1][-1.0][-1]" for species in all_species}
+        return {species: "[-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1]" for species in all_species}
     
     # Run RBPnet
     species_scores = run_rbpnet_on_fasta(fasta_file, rbpnet_bin, rbpnet_model, temp_dir, debug=debug)
@@ -379,7 +439,7 @@ def process_maf_file(maf_file, msa_view_bin, strand_map, rbpnet_bin, rbpnet_mode
         if species in species_scores:
             result[species] = species_scores[species]
         else:
-            result[species] = "[-1.0][-1][-1.0][-1][-1.0][-1]"  # Species not present in FASTA
+            result[species] = "[-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1]"  # Species not present in FASTA
     
     return result
 
@@ -453,7 +513,7 @@ def main():
                 processed_count += 1
                 
                 # Track files that failed (all scores are -1)
-                if all(score == "[-1.0][-1][-1.0][-1][-1.0][-1]" for score in scores.values()):
+                if all(score == "[-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1][-1.0][-1]" for score in scores.values()):
                     failed_files += 1
                 
                 # Periodic garbage collection to free memory (every 50 files)
