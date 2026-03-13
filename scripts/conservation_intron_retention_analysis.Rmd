@@ -163,16 +163,129 @@ parse_coord <- function(coord_str) {
 intron_coords <- do.call(rbind, lapply(PSI_table_filtered$COORD, parse_coord))
 PSI_table_filtered <- cbind(PSI_table_filtered, intron_coords)
 
+# Extract strand from the last character of FullCO column
+PSI_table_filtered$strand <- substr(PSI_table_filtered$FullCO, nchar(PSI_table_filtered$FullCO), nchar(PSI_table_filtered$FullCO))
+
+# Convert to factor and ensure only + or - (handle any edge cases)
+PSI_table_filtered$strand <- ifelse(PSI_table_filtered$strand %in% c("+", "-"),
+  PSI_table_filtered$strand,
+  NA
+)
+
+cat("Strand extracted from FullCO:\n")
+cat("  + strand:", sum(PSI_table_filtered$strand == "+", na.rm = TRUE), "\n")
+cat("  - strand:", sum(PSI_table_filtered$strand == "-", na.rm = TRUE), "\n")
+cat("  Missing/Invalid:", sum(is.na(PSI_table_filtered$strand)), "\n")
+
 # Create GRanges object for introns
 intron_gr <- GRanges(
   seqnames = PSI_table_filtered$chr,
   ranges = IRanges(start = PSI_table_filtered$start, end = PSI_table_filtered$end),
+  strand = PSI_table_filtered$strand,
   EVENT = PSI_table_filtered$EVENT,
   GENE = PSI_table_filtered$GENE
 )
 ```
 
-## Overlap Decoy Sites with Introns
+## Update DecoysControlsUniqueIDsforRecount_filtered.bed with Full Intron Coordinates
+
+```{r update-decoyids-filtered-bed}
+# Load DecoysControlsUniqueIDsforRecount_filtered.bed (filtered to match decoyIDs_filtered.bed)
+decoyIDs_filtered <- fread("../data/DecoysControlsUniqueIDsforRecount_filtered.bed",
+  col.names = c("chr", "start", "end", "decoyID", "score", "strand")
+)
+
+# Extract gene name from decoyID (format: GENE_POSITION_P, GENE_POSITION_C, or GENE_POSITION_D)
+# Remove single-letter suffix (_P, _C, or _D), then extract gene (everything before the last underscore and number)
+decoyIDs_filtered$decoyID_base <- gsub("_[PCD]$", "", decoyIDs_filtered$decoyID)
+decoyIDs_filtered$gene_from_decoyID <- stringr::str_replace(decoyIDs_filtered$decoyID_base, "_[0-9]+$", "")
+decoyIDs_filtered[, decoyID_base := NULL]
+
+cat("Loaded DecoysControlsUniqueIDsforRecount_filtered.bed:", nrow(decoyIDs_filtered), "decoy sites\n")
+cat("Unique gene names from decoyIDs:", length(unique(decoyIDs_filtered$gene_from_decoyID)), "\n")
+
+# Create GRanges for decoy sites
+decoy_filtered_gr <- GRanges(
+  seqnames = decoyIDs_filtered$chr,
+  ranges = IRanges(start = decoyIDs_filtered$start, end = decoyIDs_filtered$end),
+  decoyID = decoyIDs_filtered$decoyID,
+  gene_from_decoyID = decoyIDs_filtered$gene_from_decoyID,
+  strand = decoyIDs_filtered$strand,
+  score = decoyIDs_filtered$score
+)
+
+# Find overlaps between decoy sites and introns (strand-aware matching)
+overlaps_filtered <- findOverlaps(decoy_filtered_gr, intron_gr, ignore.strand = FALSE)
+
+cat("Overlaps found (before gene name filtering):", length(overlaps_filtered), "\n")
+
+# Get matched intron coordinates
+matched_intron_coords <- data.frame(
+  decoyID = decoy_filtered_gr$decoyID[queryHits(overlaps_filtered)],
+  gene_from_decoyID = decoy_filtered_gr$gene_from_decoyID[queryHits(overlaps_filtered)],
+  intron_chr = seqnames(intron_gr)[subjectHits(overlaps_filtered)],
+  intron_start = start(intron_gr)[subjectHits(overlaps_filtered)],
+  intron_end = end(intron_gr)[subjectHits(overlaps_filtered)],
+  intron_GENE = intron_gr$GENE[subjectHits(overlaps_filtered)],
+  intron_length = end(intron_gr)[subjectHits(overlaps_filtered)] - start(intron_gr)[subjectHits(overlaps_filtered)],
+  stringsAsFactors = FALSE
+)
+
+cat("Decoy sites overlapping introns (before gene name filtering):", nrow(matched_intron_coords), "\n")
+cat("Unique decoys with intron overlaps (before gene name filtering):", length(unique(matched_intron_coords$decoyID)), "\n")
+
+# Filter to only keep matches where gene name from decoyID matches GENE from PSI table
+matched_intron_coords <- matched_intron_coords %>%
+  filter(gene_from_decoyID == intron_GENE)
+
+cat("Decoy sites after gene name matching:", nrow(matched_intron_coords), "\n")
+cat("Unique decoys with gene-matched intron overlaps:", length(unique(matched_intron_coords$decoyID)), "\n")
+
+# If a decoy overlaps multiple introns, select the one with the shortest length
+matched_intron_coords <- matched_intron_coords %>%
+  arrange(decoyID, intron_length) %>%
+  distinct(decoyID, .keep_all = TRUE)
+
+cat("Decoy sites after selecting shortest intron:", nrow(matched_intron_coords), "\n")
+
+# Merge intron coordinates back to decoyIDs_filtered
+decoyIDs_filtered <- merge(
+  decoyIDs_filtered,
+  matched_intron_coords[, c("decoyID", "intron_chr", "intron_start", "intron_end")],
+  by = "decoyID",
+  all.x = TRUE
+)
+
+# Remove temporary gene_from_decoyID column
+decoyIDs_filtered[, gene_from_decoyID := NULL]
+
+# Update start and end coordinates to full intron coordinates where matches exist
+decoyIDs_filtered[!is.na(intron_start), start := intron_start]
+decoyIDs_filtered[!is.na(intron_end), end := intron_end]
+decoyIDs_filtered[!is.na(intron_chr), chr := intron_chr]
+
+# Remove temporary columns
+decoyIDs_filtered[, c("intron_chr", "intron_start", "intron_end") := NULL]
+
+# Count updates
+n_updated <- sum(!is.na(matched_intron_coords$decoyID))
+cat("Decoys with updated coordinates:", n_updated, "\n")
+cat("Decoys without intron matches:", nrow(decoyIDs_filtered) - n_updated, "\n")
+
+# Save updated BED file
+output_bed <- "../data/DecoysControlsUniqueIDsforRecount_filtered_intron.bed"
+fwrite(
+  decoyIDs_filtered[, .(chr, start, end, decoyID, score, strand)],
+  file = output_bed,
+  sep = "\t",
+  col.names = FALSE,
+  quote = FALSE
+)
+
+cat("Saved updated BED file to:", output_bed, "\n")
+```
+
+## Overlap Decoy Sites with Introns (old)
 
 ```{r overlap-decoys-introns}
 # Create GRanges for decoy sites from v3 BED file
@@ -187,8 +300,8 @@ decoy_gr_sites <- GRanges(
   score = decoy_coords$score
 )
 
-# Find overlaps between decoy sites and introns
-overlaps_decoy_intron <- findOverlaps(decoy_gr_sites, intron_gr, ignore.strand = TRUE)
+# Find overlaps between decoy sites and introns (strand-aware matching)
+overlaps_decoy_intron <- findOverlaps(decoy_gr_sites, intron_gr, ignore.strand = FALSE)
 
 # Get the full intron coordinates for each decoy
 decoy_intron_matched <- data.frame(
@@ -757,6 +870,7 @@ cat("phyloP sites with coordinates:", sum(!is.na(phylop_with_coords$chr)), "/", 
 phylop_gr <- GRanges(
   seqnames = phylop_with_coords$chr,
   ranges = IRanges(start = phylop_with_coords$start, end = phylop_with_coords$end),
+  strand = phylop_with_coords$strand,
   decoyID = phylop_with_coords$decoyID,
   n_sites_ge_300 = phylop_with_coords$n_sites_ge_300,
   fraction_sites_ge_300 = phylop_with_coords$fraction_sites_ge_300,
@@ -764,8 +878,8 @@ phylop_gr <- GRanges(
   mean_phylop = phylop_with_coords$mean_phylop
 )
 
-# Find overlaps between phyloP sites and introns
-overlaps <- findOverlaps(phylop_gr, intron_gr, ignore.strand = TRUE)
+# Find overlaps between phyloP sites and introns (strand-aware matching)
+overlaps <- findOverlaps(phylop_gr, intron_gr, ignore.strand = FALSE)
 
 # Create a data frame with matched phyloP and intron retention data
 matched_data <- data.frame(

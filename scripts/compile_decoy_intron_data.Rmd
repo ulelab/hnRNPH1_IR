@@ -1,0 +1,620 @@
+---
+title: "Compile Decoy Intron Retention Data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r load-libraries}
+library(data.table)
+library(GenomicRanges)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(ggrepel)
+```
+
+## Load BED File
+
+```{r load-bed}
+cat("Loading BED file...\n")
+bed_data <- fread("../data/DecoysControlsUniqueIDsforRecount_filtered_maxent_updated.bed",
+  col.names = c("chr", "start", "end", "decoyID", "SpliceAI_score", "strand", "MaxEnt_decoy", "Distance from 5'SS (nt)", "MaxEnt_canonical", "phastCons", "phastCons100way")
+)
+
+# Convert phastCons to numeric (handle "NA" strings)
+bed_data$phastCons <- as.numeric(ifelse(bed_data$phastCons == "NA", NA, bed_data$phastCons))
+bed_data$phastCons100way <- as.numeric(ifelse(bed_data$phastCons100way == "NA", NA, bed_data$phastCons100way))
+
+cat("  BED data:", nrow(bed_data), "decoy sites\n")
+cat("  Columns:", paste(colnames(bed_data), collapse = ", "), "\n")
+cat("  SpliceAI scores (not -1):", sum(!is.na(bed_data$SpliceAI_score) & bed_data$SpliceAI_score != -1), "\n")
+cat("  Distance from 5'SS values (not -1):", sum(!is.na(bed_data$`Distance from 5'SS (nt)`) & bed_data$`Distance from 5'SS (nt)` != -1), "\n")
+cat("  MaxEnt decoy scores (non-NA):", sum(!is.na(bed_data$MaxEnt_decoy)), "\n")
+cat("  MaxEnt canonical scores (non-NA):", sum(!is.na(bed_data$MaxEnt_canonical)), "\n")
+cat("  phastCons (470-way) scores (non-NA):", sum(!is.na(bed_data$phastCons)), "\n")
+if (sum(!is.na(bed_data$phastCons)) > 0) {
+  cat("  phastCons (470-way) mean:", round(mean(bed_data$phastCons, na.rm = TRUE), 6), "\n")
+  cat("  phastCons (470-way) range:", round(min(bed_data$phastCons, na.rm = TRUE), 6), "-", round(max(bed_data$phastCons, na.rm = TRUE), 6), "\n")
+}
+cat("  phastCons100way scores (non-NA):", sum(!is.na(bed_data$phastCons100way)), "\n")
+if (sum(!is.na(bed_data$phastCons100way)) > 0) {
+  cat("  phastCons100way mean:", round(mean(bed_data$phastCons100way, na.rm = TRUE), 6), "\n")
+  cat("  phastCons100way range:", round(min(bed_data$phastCons100way, na.rm = TRUE), 6), "-", round(max(bed_data$phastCons100way, na.rm = TRUE), 6), "\n")
+}
+```
+
+## Load Intron Retention Predictions
+
+```{r load-intron-retention}
+cat("\nLoading Intron Retention Predictions...\n")
+intron_data <- fread("../data/IntronRetentionPredictionsAnnotated13082025.tsv", sep = "\t", header = TRUE)
+
+cat("  Intron Retention data:", nrow(intron_data), "rows x", ncol(intron_data), "columns\n")
+cat("  Columns:", paste(colnames(intron_data), collapse = ", "), "\n")
+
+# Check for existing coordinate columns and standardize to chr, start, end
+if ("chrom" %in% colnames(intron_data) && "start" %in% colnames(intron_data) && "end" %in% colnames(intron_data)) {
+  # If chrom, start, end already exist, use them directly
+  cat("  Using existing chrom, start, end columns for coordinates\n")
+  setnames(intron_data, "chrom", "chr")
+  # Remove rows with missing coordinates
+  intron_data <- intron_data[!is.na(intron_data$chr) & !is.na(intron_data$start) & !is.na(intron_data$end), ]
+  cat("  Intron data with coordinates:", nrow(intron_data), "rows\n")
+} else if ("COORD" %in% colnames(intron_data)) {
+  # Parse COORD column if chrom/start/end don't exist
+  cat("  Parsing COORD column to extract coordinates\n")
+  parse_coord <- function(coord_str) {
+    parts <- strsplit(coord_str, ":")[[1]]
+    if (length(parts) == 2) {
+      chr <- parts[1]
+      coords <- strsplit(parts[2], "-")[[1]]
+      if (length(coords) == 2) {
+        start <- as.numeric(coords[1])
+        end <- as.numeric(coords[2])
+        return(data.frame(chr = chr, start = start, end = end))
+      }
+    }
+    return(data.frame(chr = NA, start = NA, end = NA))
+  }
+
+  # Apply parsing to all rows
+  intron_coords <- do.call(rbind, lapply(intron_data$COORD, parse_coord))
+  # Only add columns that don't already exist
+  if (!"chr" %in% colnames(intron_data)) {
+    intron_data$chr <- intron_coords$chr
+  }
+  if (!"start" %in% colnames(intron_data)) {
+    intron_data$start <- intron_coords$start
+  }
+  if (!"end" %in% colnames(intron_data)) {
+    intron_data$end <- intron_coords$end
+  }
+
+  # Remove rows with missing coordinates
+  intron_data <- intron_data[!is.na(intron_data$chr) & !is.na(intron_data$start) & !is.na(intron_data$end), ]
+
+  cat("  Intron data with coordinates:", nrow(intron_data), "rows\n")
+} else {
+  stop("No coordinate columns (chrom/start/end or COORD) found in intron data")
+}
+```
+
+## Match BED with Intron Retention Data using GRanges
+
+```{r match-granges}
+cat("\nMatching BED coordinates with Intron Retention data using GRanges...\n")
+
+# Create GRanges for decoy sites from BED file
+decoy_gr <- GRanges(
+  seqnames = bed_data$chr,
+  ranges = IRanges(start = bed_data$start, end = bed_data$end),
+  decoyID = bed_data$decoyID,
+  strand = bed_data$strand,
+  SpliceAI_score = bed_data$SpliceAI_score
+)
+
+# Create GRanges object for introns from Intron Retention data
+intron_gr <- GRanges(
+  seqnames = intron_data$chr,
+  ranges = IRanges(start = intron_data$start, end = intron_data$end)
+)
+
+# Add row index to intron_data for matching
+intron_data$row_idx <- seq_len(nrow(intron_data))
+
+# Find overlaps between decoy sites and introns
+overlaps <- findOverlaps(decoy_gr, intron_gr, ignore.strand = TRUE)
+
+cat("  Overlaps found:", length(overlaps), "\n")
+
+# Get matched data - extract all columns from intron_data using subjectHits
+matched_intron_data <- intron_data[subjectHits(overlaps), ]
+
+# Add decoyID from query
+matched_intron_data$decoyID <- decoy_gr$decoyID[queryHits(overlaps)]
+
+# Calculate intron length if not already present
+if (!"intron_length" %in% colnames(matched_intron_data)) {
+  matched_intron_data$intron_length <- matched_intron_data$end - matched_intron_data$start
+}
+
+cat("  Decoy sites overlapping introns (before filtering):", nrow(matched_intron_data), "\n")
+cat("  Unique decoys with intron overlaps:", length(unique(matched_intron_data$decoyID)), "\n")
+
+# If a decoy overlaps multiple introns, select the one with the shortest length
+matched_intron_data <- matched_intron_data %>%
+  arrange(decoyID, intron_length) %>%
+  distinct(decoyID, .keep_all = TRUE)
+
+# Remove temporary row_idx column if it exists
+if ("row_idx" %in% colnames(matched_intron_data)) {
+  matched_intron_data$row_idx <- NULL
+}
+
+cat("  Decoy sites after selecting shortest intron:", nrow(matched_intron_data), "\n")
+cat("  Unique decoys:", length(unique(matched_intron_data$decoyID)), "\n")
+```
+
+## Merge All Data
+
+```{r merge-all-data}
+cat("\nMerging all data...\n")
+
+# Convert to data.table for merging
+matched_intron_dt <- as.data.table(matched_intron_data)
+
+# Identify overlapping column names (excluding decoyID which is the merge key)
+bed_cols <- colnames(bed_data)
+intron_cols <- colnames(matched_intron_dt)
+overlapping_cols <- setdiff(intersect(bed_cols, intron_cols), "decoyID")
+
+if (length(overlapping_cols) > 0) {
+  cat("  Warning: Overlapping column names (will be suffixed):", paste(overlapping_cols, collapse = ", "), "\n")
+  # Rename overlapping columns in intron data with .intron suffix
+  for (col in overlapping_cols) {
+    setnames(matched_intron_dt, col, paste0(col, ".intron"))
+  }
+}
+
+# Merge BED data with matched intron data
+final_data <- merge(
+  bed_data,
+  matched_intron_dt,
+  by = "decoyID",
+  all.x = FALSE # Only keep decoys that matched introns
+)
+
+cat("  Final merged data:", nrow(final_data), "rows\n")
+cat("  Columns:", ncol(final_data), "\n")
+```
+
+## Print Column Names
+
+```{r print-column-names}
+cat("\n=== Column Names ===\n")
+cat(paste(colnames(final_data), collapse = "\n"), "\n")
+```
+
+## Summary
+
+```{r summary}
+cat("\n=== Summary ===\n")
+cat("  Total decoy sites in BED:", nrow(bed_data), "\n")
+cat("  Decoy sites matched to introns:", nrow(final_data), "\n")
+cat("  Unique decoyIDs matched:", length(unique(final_data$decoyID)), "\n")
+if ("EVENT" %in% colnames(final_data)) {
+  cat("  Unique introns matched:", length(unique(final_data$EVENT)), "\n")
+}
+if ("GENE" %in% colnames(final_data)) {
+  cat("  Unique genes matched:", length(unique(final_data$GENE)), "\n")
+}
+```
+
+## Write Final Data to TSV
+
+```{r write-output}
+output_file <- "../results/decoy_intron_retention_merged.tsv"
+fwrite(final_data, file = output_file, sep = "\t", col.names = TRUE, quote = FALSE)
+cat("\nFinal data written to:", output_file, "\n")
+cat("  Rows:", nrow(final_data), "\n")
+cat("  Columns:", ncol(final_data), "\n")
+```
+
+## Top 100 for Both phastCons Columns
+
+```{r top100-both-phastcons}
+# Filter out rows with missing phastCons values
+data_with_phastcons <- final_data[!is.na(final_data$phastCons) & !is.na(final_data$phastCons100way), ]
+
+if (nrow(data_with_phastcons) > 0) {
+  # Get top 100 for phastCons (470-way) - highest values
+  top100_phastcons <- data_with_phastcons %>%
+    arrange(desc(phastCons)) %>%
+    slice_head(n = 100) %>%
+    pull(decoyID)
+  
+  # Get top 100 for phastCons100way - highest values
+  top100_phastcons100way <- data_with_phastcons %>%
+    arrange(desc(phastCons100way)) %>%
+    slice_head(n = 100) %>%
+    pull(decoyID)
+  
+  # Find intersection - decoyIDs in top 100 for both
+  top100_both <- intersect(top100_phastcons, top100_phastcons100way)
+  
+  cat("\n=== Top 100 for Both phastCons Columns ===\n")
+  cat("  Total rows with both phastCons values:", nrow(data_with_phastcons), "\n")
+  cat("  Rows in top 100 for phastCons (470-way):", length(top100_phastcons), "\n")
+  cat("  Rows in top 100 for phastCons100way:", length(top100_phastcons100way), "\n")
+  cat("  Rows in top 100 for BOTH:", length(top100_both), "\n\n")
+  
+  if (length(top100_both) > 0) {
+    # Get full data for these decoyIDs
+    top100_both_data <- final_data[final_data$decoyID %in% top100_both, ]
+    
+    # Sort by phastCons (descending) for display
+    top100_both_data <- top100_both_data %>%
+      arrange(desc(phastCons))
+    
+    cat("=== All Rows in Top 100 for Both phastCons Columns ===\n\n")
+    print(top100_both_data)
+  } else {
+    cat("No rows found in top 100 for both phastCons columns.\n")
+  }
+} else {
+  cat("\nNo rows with both phastCons values available.\n")
+}
+```
+
+## Manhattan Plot
+
+```{r manhattan-plot, fig.height=8, fig.width=16}
+# Get top 100 decoys from phastCons analysis (if available)
+top100_decoys <- NULL
+if (exists("top100_both") && length(top100_both) > 0) {
+  top100_decoys <- top100_both
+} else {
+  # Fallback: use top 100 by phastCons if top100_both not available
+  data_with_phastcons_temp <- final_data[!is.na(final_data$phastCons) & !is.na(final_data$phastCons100way), ]
+  if (nrow(data_with_phastcons_temp) > 0) {
+    top100_phastcons_temp <- data_with_phastcons_temp %>%
+      arrange(desc(phastCons)) %>%
+      slice_head(n = 100) %>%
+      pull(decoyID)
+    top100_phastcons100way_temp <- data_with_phastcons_temp %>%
+      arrange(desc(phastCons100way)) %>%
+      slice_head(n = 100) %>%
+      pull(decoyID)
+    top100_decoys <- intersect(top100_phastcons_temp, top100_phastcons100way_temp)
+  }
+}
+
+# Prepare data for Manhattan plot - filter to top 100 decoys only
+plot_data <- final_data %>%
+  filter(!is.na(MaxEnt_decoy)) %>%
+  { if (!is.null(top100_decoys) && length(top100_decoys) > 0) filter(., decoyID %in% top100_decoys) else . } %>%
+  select(chr, start, end, MaxEnt_decoy, decoyID)
+
+# Order chromosomes (standard order + any non-standard)
+chr_order <- c(paste0("chr", c(1:22, "X", "Y", "M")))
+chr_levels <- unique(plot_data$chr)
+chr_levels <- c(intersect(chr_order, chr_levels), setdiff(chr_levels, chr_order))
+plot_data$chr <- factor(plot_data$chr, levels = chr_levels)
+
+# Sort by chromosome and position
+plot_data <- plot_data %>%
+  arrange(chr, start)
+
+# Calculate cumulative positions for Manhattan plot
+chr_lengths <- plot_data %>%
+  group_by(chr) %>%
+  summarise(max_pos = max(end, na.rm = TRUE), .groups = "drop") %>%
+  arrange(factor(chr, levels = chr_levels))
+
+# Calculate cumulative start positions for each chromosome
+cumulative_pos <- 0
+chr_centers <- numeric(length(chr_levels))
+names(chr_centers) <- chr_levels
+plot_data$cumulative_pos <- NA_real_
+
+for (i in seq_along(chr_levels)) {
+  chr_name <- chr_levels[i]
+  chr_data <- plot_data[plot_data$chr == chr_name, ]
+  
+  if (nrow(chr_data) > 0) {
+    chr_max_pos <- max(chr_data$end, na.rm = TRUE)
+    chr_centers[chr_name] <- cumulative_pos + chr_max_pos / 2
+    
+    # Add positions for this chromosome
+    plot_data$cumulative_pos[plot_data$chr == chr_name] <- 
+      cumulative_pos + chr_data$start
+    
+    cumulative_pos <- cumulative_pos + chr_max_pos + max(chr_lengths$max_pos, na.rm = TRUE) * 0.02  # Add small gap between chromosomes
+  }
+}
+
+# Create Manhattan plot with labels for top 100 decoys
+p_manhattan <- ggplot(plot_data, aes(x = cumulative_pos, y = MaxEnt_decoy, color = chr)) +
+  geom_point(alpha = 0.6, size = 0.5) +
+  geom_text_repel(
+    aes(label = decoyID),
+    size = 2.5,
+    box.padding = unit(0.35, "lines"),
+    point.padding = unit(0.3, "lines"),
+    segment.color = 'grey50',
+    min.segment.length = 0,
+    max.overlaps = Inf
+  ) +
+  scale_color_manual(values = rep(c("#1f77b4", "#ff7f0e"), length.out = length(chr_levels))) +
+  scale_x_continuous(
+    breaks = chr_centers,
+    labels = names(chr_centers),
+    expand = expansion(mult = 0.01)
+  ) +
+  labs(
+    title = "Manhattan Plot: MaxEnt Decoy Scores Across Genome (Top 100 phastCons Decoys)",
+    subtitle = paste("Total decoy sites plotted:", nrow(plot_data)),
+    x = "Chromosome",
+    y = "MaxEnt Decoy Score",
+    color = "Chromosome"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 10),
+    legend.position = "none",
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+print(p_manhattan)
+
+# Print summary statistics
+cat("\n=== Manhattan Plot Summary ===\n")
+cat("  Total points plotted:", nrow(plot_data), "\n")
+cat("  Chromosomes:", length(chr_levels), "\n")
+cat("  MaxEnt_decoy range:", round(min(plot_data$MaxEnt_decoy, na.rm = TRUE), 4), "-", 
+    round(max(plot_data$MaxEnt_decoy, na.rm = TRUE), 4), "\n")
+cat("  MaxEnt_decoy mean:", round(mean(plot_data$MaxEnt_decoy, na.rm = TRUE), 4), "\n")
+```
+
+## Manhattan Plot: MaxEntScan Delta Score (Decoy - Canonical)
+
+```{r manhattan-plot-maxent-delta, fig.height=8, fig.width=16}
+# Get top 100 decoys from phastCons analysis (if available)
+top100_decoys_delta <- NULL
+if (exists("top100_both") && length(top100_both) > 0) {
+  top100_decoys_delta <- top100_both
+} else {
+  # Fallback: use top 100 by phastCons if top100_both not available
+  data_with_phastcons_temp <- final_data[!is.na(final_data$phastCons) & !is.na(final_data$phastCons100way), ]
+  if (nrow(data_with_phastcons_temp) > 0) {
+    top100_phastcons_temp <- data_with_phastcons_temp %>%
+      arrange(desc(phastCons)) %>%
+      slice_head(n = 100) %>%
+      pull(decoyID)
+    top100_phastcons100way_temp <- data_with_phastcons_temp %>%
+      arrange(desc(phastCons100way)) %>%
+      slice_head(n = 100) %>%
+      pull(decoyID)
+    top100_decoys_delta <- intersect(top100_phastcons_temp, top100_phastcons100way_temp)
+  }
+}
+
+# Prepare data for Manhattan plot with MaxEntScan delta score - filter to top 100 decoys only
+plot_data_delta <- final_data %>%
+  filter(!is.na(MaxEnt_decoy) & !is.na(MaxEnt_canonical)) %>%
+  { if (!is.null(top100_decoys_delta) && length(top100_decoys_delta) > 0) filter(., decoyID %in% top100_decoys_delta) else . } %>%
+  mutate(MaxEnt_delta = MaxEnt_decoy - MaxEnt_canonical) %>%
+  select(chr, start, end, MaxEnt_delta, decoyID)
+
+# Order chromosomes (standard order + any non-standard)
+chr_order <- c(paste0("chr", c(1:22, "X", "Y", "M")))
+chr_levels_delta <- unique(plot_data_delta$chr)
+chr_levels_delta <- c(intersect(chr_order, chr_levels_delta), setdiff(chr_levels_delta, chr_order))
+plot_data_delta$chr <- factor(plot_data_delta$chr, levels = chr_levels_delta)
+
+# Sort by chromosome and position
+plot_data_delta <- plot_data_delta %>%
+  arrange(chr, start)
+
+# Calculate cumulative positions for Manhattan plot
+chr_lengths_delta <- plot_data_delta %>%
+  group_by(chr) %>%
+  summarise(max_pos = max(end, na.rm = TRUE), .groups = "drop") %>%
+  arrange(factor(chr, levels = chr_levels_delta))
+
+# Calculate cumulative start positions for each chromosome
+cumulative_pos_delta <- 0
+chr_centers_delta <- numeric(length(chr_levels_delta))
+names(chr_centers_delta) <- chr_levels_delta
+plot_data_delta$cumulative_pos <- NA_real_
+
+for (i in seq_along(chr_levels_delta)) {
+  chr_name <- chr_levels_delta[i]
+  chr_data <- plot_data_delta[plot_data_delta$chr == chr_name, ]
+  
+  if (nrow(chr_data) > 0) {
+    chr_max_pos <- max(chr_data$end, na.rm = TRUE)
+    chr_centers_delta[chr_name] <- cumulative_pos_delta + chr_max_pos / 2
+    
+    # Add positions for this chromosome
+    plot_data_delta$cumulative_pos[plot_data_delta$chr == chr_name] <- 
+      cumulative_pos_delta + chr_data$start
+    
+    cumulative_pos_delta <- cumulative_pos_delta + chr_max_pos + max(chr_lengths_delta$max_pos, na.rm = TRUE) * 0.02
+  }
+}
+
+# Create Manhattan plot with labels for top 100 decoys
+p_manhattan_delta <- ggplot(plot_data_delta, aes(x = cumulative_pos, y = MaxEnt_delta, color = chr)) +
+  geom_point(alpha = 0.6, size = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50", alpha = 0.7) +
+  geom_text_repel(
+    aes(label = decoyID),
+    size = 2.5,
+    box.padding = unit(0.35, "lines"),
+    point.padding = unit(0.3, "lines"),
+    segment.color = 'grey50',
+    min.segment.length = 0,
+    max.overlaps = Inf
+  ) +
+  scale_color_manual(values = rep(c("#1f77b4", "#ff7f0e"), length.out = length(chr_levels_delta))) +
+  scale_x_continuous(
+    breaks = chr_centers_delta,
+    labels = names(chr_centers_delta),
+    expand = expansion(mult = 0.01)
+  ) +
+  labs(
+    title = "Manhattan Plot: MaxEntScan Delta Score (Decoy - Canonical) Across Genome (Top 100 phastCons Decoys)",
+    subtitle = paste("Total decoy sites plotted:", nrow(plot_data_delta)),
+    x = "Chromosome",
+    y = "MaxEntScan Delta Score (Decoy - Canonical)",
+    color = "Chromosome"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 10),
+    legend.position = "none",
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+print(p_manhattan_delta)
+
+# Print summary statistics
+cat("\n=== Manhattan Plot Summary (MaxEntScan Delta) ===\n")
+cat("  Total points plotted:", nrow(plot_data_delta), "\n")
+cat("  Chromosomes:", length(chr_levels_delta), "\n")
+cat("  MaxEnt_delta range:", round(min(plot_data_delta$MaxEnt_delta, na.rm = TRUE), 4), "-", 
+    round(max(plot_data_delta$MaxEnt_delta, na.rm = TRUE), 4), "\n")
+cat("  MaxEnt_delta mean:", round(mean(plot_data_delta$MaxEnt_delta, na.rm = TRUE), 4), "\n")
+cat("  Positive delta (decoy > canonical):", sum(plot_data_delta$MaxEnt_delta > 0, na.rm = TRUE), "\n")
+cat("  Negative delta (decoy < canonical):", sum(plot_data_delta$MaxEnt_delta < 0, na.rm = TRUE), "\n")
+```
+
+## Manhattan Plot: SpliceAI Score
+
+```{r manhattan-plot-spliceai, fig.height=8, fig.width=16}
+# Get top 100 decoys from phastCons analysis (if available)
+top100_decoys_spliceai <- NULL
+if (exists("top100_both") && length(top100_both) > 0) {
+  top100_decoys_spliceai <- top100_both
+} else {
+  # Fallback: use top 100 by phastCons if top100_both not available
+  data_with_phastcons_temp <- final_data[!is.na(final_data$phastCons) & !is.na(final_data$phastCons100way), ]
+  if (nrow(data_with_phastcons_temp) > 0) {
+    top100_phastcons_temp <- data_with_phastcons_temp %>%
+      arrange(desc(phastCons)) %>%
+      slice_head(n = 100) %>%
+      pull(decoyID)
+    top100_phastcons100way_temp <- data_with_phastcons_temp %>%
+      arrange(desc(phastCons100way)) %>%
+      slice_head(n = 100) %>%
+      pull(decoyID)
+    top100_decoys_spliceai <- intersect(top100_phastcons_temp, top100_phastcons100way_temp)
+  }
+}
+
+# Prepare data for Manhattan plot with SpliceAI score - filter to top 100 decoys only
+plot_data_spliceai <- final_data %>%
+  filter(!is.na(SpliceAI_score) & SpliceAI_score != -1) %>%
+  { if (!is.null(top100_decoys_spliceai) && length(top100_decoys_spliceai) > 0) filter(., decoyID %in% top100_decoys_spliceai) else . } %>%
+  select(chr, start, end, SpliceAI_score, decoyID)
+
+# Order chromosomes (standard order + any non-standard)
+chr_order <- c(paste0("chr", c(1:22, "X", "Y", "M")))
+chr_levels_spliceai <- unique(plot_data_spliceai$chr)
+chr_levels_spliceai <- c(intersect(chr_order, chr_levels_spliceai), setdiff(chr_levels_spliceai, chr_order))
+plot_data_spliceai$chr <- factor(plot_data_spliceai$chr, levels = chr_levels_spliceai)
+
+# Sort by chromosome and position
+plot_data_spliceai <- plot_data_spliceai %>%
+  arrange(chr, start)
+
+# Calculate cumulative positions for Manhattan plot
+chr_lengths_spliceai <- plot_data_spliceai %>%
+  group_by(chr) %>%
+  summarise(max_pos = max(end, na.rm = TRUE), .groups = "drop") %>%
+  arrange(factor(chr, levels = chr_levels_spliceai))
+
+# Calculate cumulative start positions for each chromosome
+cumulative_pos_spliceai <- 0
+chr_centers_spliceai <- numeric(length(chr_levels_spliceai))
+names(chr_centers_spliceai) <- chr_levels_spliceai
+plot_data_spliceai$cumulative_pos <- NA_real_
+
+for (i in seq_along(chr_levels_spliceai)) {
+  chr_name <- chr_levels_spliceai[i]
+  chr_data <- plot_data_spliceai[plot_data_spliceai$chr == chr_name, ]
+  
+  if (nrow(chr_data) > 0) {
+    chr_max_pos <- max(chr_data$end, na.rm = TRUE)
+    chr_centers_spliceai[chr_name] <- cumulative_pos_spliceai + chr_max_pos / 2
+    
+    # Add positions for this chromosome
+    plot_data_spliceai$cumulative_pos[plot_data_spliceai$chr == chr_name] <- 
+      cumulative_pos_spliceai + chr_data$start
+    
+    cumulative_pos_spliceai <- cumulative_pos_spliceai + chr_max_pos + max(chr_lengths_spliceai$max_pos, na.rm = TRUE) * 0.02
+  }
+}
+
+# Create Manhattan plot with labels for top 100 decoys
+p_manhattan_spliceai <- ggplot(plot_data_spliceai, aes(x = cumulative_pos, y = SpliceAI_score, color = chr)) +
+  geom_point(alpha = 0.6, size = 0.5) +
+  geom_text_repel(
+    aes(label = decoyID),
+    size = 2.5,
+    box.padding = unit(0.35, "lines"),
+    point.padding = unit(0.3, "lines"),
+    segment.color = 'grey50',
+    min.segment.length = 0,
+    max.overlaps = Inf
+  ) +
+  scale_color_manual(values = rep(c("#1f77b4", "#ff7f0e"), length.out = length(chr_levels_spliceai))) +
+  scale_x_continuous(
+    breaks = chr_centers_spliceai,
+    labels = names(chr_centers_spliceai),
+    expand = expansion(mult = 0.01)
+  ) +
+  labs(
+    title = "Manhattan Plot: SpliceAI Scores Across Genome (Top 100 phastCons Decoys)",
+    subtitle = paste("Total decoy sites plotted:", nrow(plot_data_spliceai)),
+    x = "Chromosome",
+    y = "SpliceAI Score",
+    color = "Chromosome"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 10),
+    legend.position = "none",
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+print(p_manhattan_spliceai)
+
+# Print summary statistics
+cat("\n=== Manhattan Plot Summary (SpliceAI) ===\n")
+cat("  Total points plotted:", nrow(plot_data_spliceai), "\n")
+cat("  Chromosomes:", length(chr_levels_spliceai), "\n")
+cat("  SpliceAI_score range:", round(min(plot_data_spliceai$SpliceAI_score, na.rm = TRUE), 6), "-", 
+    round(max(plot_data_spliceai$SpliceAI_score, na.rm = TRUE), 6), "\n")
+cat("  SpliceAI_score mean:", round(mean(plot_data_spliceai$SpliceAI_score, na.rm = TRUE), 6), "\n")
+cat("  SpliceAI_score median:", round(median(plot_data_spliceai$SpliceAI_score, na.rm = TRUE), 6), "\n")
+```
