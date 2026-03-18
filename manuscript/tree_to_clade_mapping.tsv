@@ -1,0 +1,101 @@
+tree_name	clade	species_id	matched_common_name
+Aardvark	Afrotheria	oryAfe1	Aardvark
+Alpaca	Laurasiatheria	vicPac2	Alpaca
+American_alligator	Sarcopterygii	allMis1	American alligator
+Armadillo	Mammal	dasNov3	Armadillo
+Atlantic_cod	Fish	gadMor1	Atlantic cod
+Baboon	Primate	papAnu2	Baboon
+Big_brown_bat	Laurasiatheria	eptFus1	Big brown bat
+Black_flying_fox	Laurasiatheria	pteAle1	Black flying-fox
+Brush_tailed_rat	Euarchontoglires	octDeg1	Brush-tailed rat
+Budgerigar	Aves	melUnd1	Budgerigar
+Burtons_mouthbreeder	Fish	hapBur1	Burton's mouthbreeder
+Bushbaby	Primate	otoGar3	Bushbaby
+Cape_elephant_shrew	Afrotheria	eleEdw1	Cape elephant shrew
+Cape_golden_mole	Afrotheria	chrAsi1	Cape golden mole
+Cat	Laurasiatheria	felCat8	Cat
+Chicken	Aves	galGal4	Chicken
+Chimp	Primate	panTro4	Chimp
+Chinchilla	Euarchontoglires	chiLan1	Chinchilla
+Chinese_hamster	Euarchontoglires	criGri1	Chinese hamster
+Chinese_softshell_turtle	Sarcopterygii	pelSin1	Chinese softshell turtle
+Chinese_tree_shrew	Euarchontoglires	tupChi1	Chinese tree shrew
+Coelacanth	Sarcopterygii	latCha1	Coelacanth
+Collared_flycatcher	Aves	ficAlb2	Collared flycatcher
+Cow	Laurasiatheria	bosTau8	Cow
+Crab_eating_macaque	Primate	macFas5	Crab-eating macaque
+Davids_myotis	Laurasiatheria	myoDav1	Davids myotis bat
+Dog	Laurasiatheria	canFam3	Dog
+Dolphin	Laurasiatheria	turTru2	Dolphin
+Domestic_goat	Laurasiatheria	capHir1	Domestic goat
+Elephant	Afrotheria	loxAfr3	Elephant
+Ferret	Laurasiatheria	musFur1	Ferret
+Fugu	Fish	fr3	Fugu
+Gibbon	Primate	nomLeu3	Gibbon
+Golden_hamster	Euarchontoglires	mesAur1	Golden hamster
+Gorilla	Primate	gorGor3	Gorilla
+Green_monkey	Primate	chlSab2	Green monkey
+Green_seaturtle	Sarcopterygii	cheMyd1	Green seaturtle
+Guinea_pig	Euarchontoglires	cavPor3	Guinea pig
+Hedgehog	Laurasiatheria	eriEur2	Hedgehog
+Horse	Laurasiatheria	equCab2	Horse
+Human	Primate	hg38	Human
+Killer_whale	Laurasiatheria	orcOrc1	Killer whale
+Lamprey	Fish	petMar2	Lamprey
+Lesser_Egyptian_jerboa	Euarchontoglires	jacJac1	Lesser Egyptian jerboa
+Lizard	Sarcopterygii	anoCar2	Lizard
+Mallard_duck	Aves	anaPla1	Mallard duck
+Manatee	Afrotheria	triMan1	Manatee
+Marmoset	Primate	calJac3	Marmoset
+Medaka	Fish	oryLat2	Medaka
+Medium_ground_finch	Aves	geoFor1	Medium ground finch
+Megabat	Laurasiatheria	pteVam1	Megabat
+Mexican_tetra	Fish	astMex1	Mexican tetra (cavefish)
+Microbat	Laurasiatheria	myoLuc2	Microbat
+Mouse	Euarchontoglires	mm10	Mouse
+Naked_mole_rat	Euarchontoglires	hetGla2	Naked mole-rat
+Nile_tilapia	Fish	oreNil2	Nile tilapia
+Opossum	Mammal	monDom5	Opossum
+Orangutan	Primate	ponAbe2	Orangutan
+Pacific_walrus	Laurasiatheria	odoRosDiv1	Pacific walrus
+Painted_turtle	Sarcopterygii	chrPic2	Painted turtle
+Panda	Laurasiatheria	ailMel1	Panda
+Peregrine_falcon	Aves	falPer1	Peregrine falcon
+Pig	Laurasiatheria	susScr3	Pig
+Pika	Euarchontoglires	ochPri3	Pika
+Platypus	Mammal	ornAna1	Platypus
+Prairie_vole	Euarchontoglires	micOch1	Prairie vole
+Princess_of_Burundi	Fish	neoBri1	Princess of Burundi
+Puerto_Rican_parrot	Aves	amaVit1	Parrot
+Pundamilia_nyererei	Fish	punNye1	Pundamilia nyererei
+Rabbit	Euarchontoglires	oryCun2	Rabbit
+Rat	Euarchontoglires	rn6	Rat
+Rhesus	Primate	rheMac3	Rhesus
+Rock_pigeon	Aves	colLiv1	Rock pigeon
+Saker_falcon	Aves	falChe1	Saker falcon
+Scarlet_macaw	Aves	araMac1	Scarlet macaw
+Sheep	Laurasiatheria	oviAri3	Sheep
+Shrew	Laurasiatheria	sorAra2	Shrew
+Southern_platyfish	Fish	xipMac1	Southern platyfish
+Spiny_softshell_turtle	Sarcopterygii	apaSpi1	Spiny softshell turtle
+Spotted_gar	Fish	lepOcu1	Spotted gar
+Squirrel_monkey	Primate	saiBol1	Squirrel monkey
+Squirrel	Euarchontoglires	speTri2	Squirrel
+Stickleback	Fish	gasAcu1	Stickleback
+Tasmanian_devil	Mammal	sarHar1	Tasmanian devil
+Tenrec	Afrotheria	echTel2	Tenrec
+Tetraodon	Fish	tetNig2	Tetraodon
+Tibetan_antelope	Laurasiatheria	panHod1	Tibetan antelope
+Tibetan_ground_jay	Aves	pseHum1	Tibetan ground jay
+Turkey	Aves	melGal1	Turkey
+Wallaby	Mammal	macEug2	Wallaby
+Weddell_seal	Laurasiatheria	lepWed1	Weddell seal
+White_rhinoceros	Laurasiatheria	cerSim1	White rhinoceros
+White_throated_sparrow	Aves	zonAlb1	White-throated sparrow
+Wild_bactrian_camel	Laurasiatheria	camFer1	Wild bactrian camel
+Yellowbelly_pufferfish	Fish	takFla1	Yellowbelly pufferfish
+Zebra_finch	Aves	taeGut2	Zebra finch
+Zebra_mbuna	Fish	mayZeb1	Zebra mbuna
+Zebrafish	Fish	danRer10	Zebrafish
+Frog_X._tropicalis	Sarcopterygii	xenTro7	X. tropicalis
+Star-nosed_mole	Laurasiatheria	conCri1	Star-nosed mole

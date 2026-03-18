@@ -1,0 +1,249 @@
+> hg38
+----AAGT--ACCT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTTT-ACCAG---CA-G------A
+> panTro4
+----AAGT--ACCT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTTT-ACCAG---CA-G------A
+> gorGor3
+----AAGT--ACCT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTTT-ACCAG---CA-G------A
+> ponAbe2
+----AAGT--ACCT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTTT-ACCAG---CA-G------A
+> nomLeu3
+----AAGT--GCCT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTTT-ACCAG---CA-G------A
+> rheMac3
+----AAGT--ACTT-CACGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---CA-G------A
+> macFas5
+----AAGT--ACTT-CACGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---CA-G------A
+> papAnu2
+----AAGT--ACTT-CACGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---CA-G------A
+> chlSab2
+----AAGT--ACTT-CACGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---CA-G------A
+> calJac3
+----AAGT--ACCT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---CA-G------A
+> saiBol1
+----AAGT--ACCT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---CA-G------A
+> otoGar3
+----AAGT--ACTC-CAACT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCCCTAAACAT---TA-G------G
+> tupChi1
+----AAGT--ACTT-CACGT---T-----------------------GAAGGTA---------AGAT---
+-------------------------CCCTTT-AC----------------A
+> speTri2
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------TCCTT--AACGT---TA-G------A
+> jacJac1
+----GACT--CCTT-CAAAT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--CACAT---TA-G------A
+> micOch1
+----AAGT--ACTT-CATGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CTTTT--AACAT---TA-G------A
+> criGri1
+----AAAT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CTTTT--AACAT---TA-G------A
+> mesAur1
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CTTTT--AACAT---TA-G------A
+> mm10
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CTTTT--AACAT---TA-G------A
+> rn6
+----AAGT--ACTG-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CTTTTT-AACAT---TA-G------A
+> hetGla2
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCGT--ACTGT---TA-G------A
+> cavPor3
+----GAGT--ATTT-CAA-T---T-----------------------AAAGGTA---------AGCT---
+-------------------------CCTGT--ACCTT---TA-G------A
+> chiLan1
+----GAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CCTGT--ATCCT---TA-G------A
+> octDeg1
+----GAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CTTTT--ATCCT---TA-G------G
+> oryCun2
+----AAGT--ACTT-CAAAT---G-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---TA-G------A
+> ochPri3
+----AAGT--ACTT-ACAGG---G-----------------------AAAGGTA---------AGAT---
+-------------------------CTCTT--AACAG---TA-G------A
+> susScr3
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CCCTA--AACAT---TA-G------A
+> vicPac2
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CCCTT--AACAT---TA-G------A
+> camFer1
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CCCTT--AACAT---TA-G------A
+> turTru2
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---TA-G------A
+> orcOrc1
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---TA-G------A
+> panHod1
+----AAAT--GCTT-CACGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---TA-G------A
+> bosTau8
+----AAAT--ACTT-CACAT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---TA-G------A
+> oviAri3
+----AAAT--GCTT-CACCT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--CACAT---TA-G------A
+> capHir1
+----AAAT--GCTT-CACGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---TA-G------A
+> equCab2
+----AAGTGTACTG-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--CACAT---TA-G------A
+> cerSim1
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--CACAT---TA-G------A
+> felCat8
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---TA-G------A
+> canFam3
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CACTT--AACAT---TA-G------A
+> musFur1
+----AGGT--ACTT-CAAGG---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACCT---TA-G------A
+> ailMel1
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CTCTT--AACGT---TA-G------A
+> odoRosDiv1
+----AAGT--AC---CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------TCTTT--AACGT---CA-G------A
+> lepWed1
+----AAGT--AC---CAAGT---------------------------AAAGGTA---------AGAT---
+-------------------------TCCTT--AACGT---TA-G------A
+> pteAle1
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---TA-G------A
+> pteVam1
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--AACAT---TA-G------A
+> eptFus1
+----GAGT--ACTT-CACGT---T-----------------------ACAGGTA---------AGAT---
+-------------------------CCCTA--AACAT---TA-G------G
+> myoDav1
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTA--AACAT---TA-G------A
+> myoLuc2
+----AAGT--ACTT-CAAGT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTA--AACAT---TA-G------A
+> eriEur2
+----AAGT--GCTT-CAAGT---T-----------------------TAAGGTA---------AGAT---
+-------------------------CCCTT--TACAT---CA-G------A
+> loxAfr3
+----AAGT--ACTC-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CCCTT--AACGT---TA-G------A
+> triMan1
+----AAGT--ACTC-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CCTTC--AACGT---TA-G------A
+> chrAsi1
+----AAGT--ACTC-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CCCTT--GCTGT---TA-G------A
+> echTel2
+----GAGT--TCTC-CA-TT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CCCTC--ACCAT---TAAG------A
+> oryAfe1
+----AAAT--ACTC-CAAGT---T-----------------------AAAGGTA---------AGCG---
+-------------------------CCCTC--ACTGT---TA-G------A
+> dasNov3
+----AAGT--ACTT-CAATT---T-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTC--ACAGT---GA-G------A
+> monDom5
+----TAGT--ACCT-CAAGT---TTA---------------------TAAGGTA---------AGATG--
+-------------------------CACTT--ATCAC---CATG------A
+> sarHar1
+----TAGT--ACCT-CAAGT---TTA---------------------TAAGGTA---------AGATG--
+-------------------------CACTT--ATCAC---CATG------A
+> macEug2
+----TAGT--ACCT-CAAGT---TTA---------------------TAAGGTA---------AGATG--
+-------------------------CACTT--ATCAC---CATG------A
+> ornAna1
+----TAGT--ACCT-CAAGT---TCA---------------------CAAGGTA---------AGATGTA
+C------------------------TTCTC--ACCGTGCCTA-G------A
+> colLiv1
+----------AATT-CA------------------------------GATGGGA---------GGAT---
+-------------------------ATTTCT-ACCCC---CA-G------A
+> falChe1
+----------ATTT-CA------------------------------GCTGGGA---------GGAT---
+-------------------------ATTTCC-ACCCG---CA-G------A
+> falPer1
+----------ATTT-CA------------------------------GCTGGGA---------GGAT---
+-------------------------ATTTCC-ACCCG---CA-G------A
+> ficAlb2
+----------AGTT-CATG------------------------------TGGGA---------GGAT---
+-------------------------ATTTCC-ACCCC---CA-G------A
+> zonAlb1
+----------AGTT-CATGT---GGGAAGCTGCTTCCACCCCTGG--CCTTGGA---------TGATTGG
+CCCTGGTTGGTGAAGGATGTAGATCACACTC-ACCAC---TG-G------A
+> geoFor1
+----------AGTT-CATGT---GGGAGGCTACTTCCACCCCTGG--CCTTGGA---------TGATTGG
+CCCTGGTCAGTGAAGGATGTAGATCACACTC-ACCGC---TG-G------A
+> taeGut2
+----------AGTT-CATGT---GGCAGTCTACTTCCACCCCCAG--CCTTGGA---------TGATTGG
+CCCTGGTCAGTGAAGGATGTAGAACCCTCTC-ACCAC---TG-G------A
+> melUnd1
+----------AGTG-AA-------------------CAGTTCAGG----TGGGA---------GGAT---
+-------------------------ATTTCC-ACTCC---CA-G------A
+> araMac1
+----------AGTG-AA-------------------CAGTTCAGG----TGGGA---------GGAT---
+-------------------------ATTTCC-ACCCA---CA-G------A
+> anaPla1
+----------AGTT-CA---------------------------C--GCTGCTA---------TTTT---
+-------------------------CTTTTT-CTCTG---AA-G------T
+> galGal4
+----------AAAA-CA---------------------------G--AAAACAA---------GTAT---
+-------------------------GGCTAA-ATCCA---TA-A------A
+> melGal1
+----------AAA-----------------------------------------------------T---
+-------------------------TGCTTG-ATTGG---TA-G------C
+> allMis1
+----------AATT-CTTGT---A---------------------------*******************
+********************************************------A
+> cheMyd1
+----------ATTC-CACAC---ATGCTGCTCAGTTGAGCACATAAAAATGGTT---------GAGC---
+-------------------------CTTTGT-ATTGC---TA-G------A
+> chrPic2
+----------ATTC-CACAC---ATGCTGCTCAGTCGAGCACATAAAAATGGTT---------GAGC---
+-------------------------CTCTTT-ATTGC---TG-G------A
+> pelSin1
+----------ATTC-CACTC---ATGCTGCTCAGTCAAGCACATA--CATGCTT---------GAGC---
+-------------------------CTTTTT-ATTGC---TG-G------A
+> anoCar2
+----------AATA-CATTA---AAAA--------------------GAAAAGT---------AGAT---
+--------------------------------ACTGA---TA-G------A
+> latCha1
+TC--AGTT--ATGG-TGGTC---T-----------------------GATGGCAGTACTAACTATAT---
+-------------------------CCCTGCATACAG---TG-GATCTCTA
+> sorAra2
+----ATAT--ATTTGAAAGTAAGT-----------------------AAAGGTA---------AGAT---
+-------------------------CCCTT--CGCAT-------*******
+> conCri1
+----AAGT--ACTTCCAAGT---T-----------------------AAAGGTA---------AGAC---
+-------------------------CCCTT--TAGAT---CA-G*******
+> eleEdw1
+----AAGT--ACTC-CAAGT---T-----------------------AAAGGTA---------AGCT---
+-------------------------CCCTC--ACTGT---TA--*******
+> pseHum1
+----------ATTT-CA------------------------------TGTGGGA---------GGAT---
+-------------------------GTTTCT-ACCCC---TA-G*******
+> apaSpi1
+----------GTTT-TACTT---A-GCTCCATAGAAAAGT-------CAAGATT---------GTAT---
+-------------------------TCTTCA-AATTG---AG-A*******
+> oryLat2
+GCTGAATT--TTTT-CAGGT---A-----------------------AAA-*******************
+***************************************************

@@ -1,0 +1,186 @@
+---
+title: 'Figure 1: hnRNPH1 intron 4 decoy ggmsa plot'
+author: "Manuscript title"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+    theme: flatly
+  pdf_document:
+    toc: true
+---
+
+### Data provenance
+
+
+#### This figure is generated from the UCSC multiz MAF for chr5 and extracts the **hnRNPH1 intron 4 decoy** alignment from:
+
+#### - **Region**: `chr5:179620560-179620600` (hg38 coordinates)
+
+
+#### - **Extraction**: `mafsInRegion` from the Kent source tree (`kentUtils/src/hg/ratStuff/mafsInRegion`)
+#### - `$ ../software/kent/binaries/./mafsInRegion hnRNPH1_intron4decoy.bed hnRNPH1_intron4decoy.maf chr5.maf.gz`
+##### - chr5.maf.gz downloaded from https://hgdownload.soe.ucsc.edu/goldenPath/hg38/multiz100way/maf/chr5.maf.gz
+  
+  
+#### - **MAF → FASTA conversion**: `msa_view` from the PHAST package converts maf file to fasta format with strand-aware logic 
+#### - `$ msa_view --in-format MAF --out-format FASTA hnRNPH1_intron4decoy.maf > hnRNPH1_intron4decoyMSA.fa`
+  
+
+#### In this markdown file, the extracted alignment FASTA `hnRNPH1_intron4decoyMSA.fa` is used to plot the alignment of the decoy 5' consensus sequence conservation.
+
+##### Below, we (1) plot this FASTA directly, then (2) create a manuscript-ready FASTA by renaming genome assemblies to common names, converting DNA (T) to RNA (U), removing a small set of taxa, removing all-gap/all-* columns, and finally (3) re-plot with highlighting around the proposed decoy site.
+
+
+
+### Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 14,
+  fig.height = 12
+)
+```
+
+```{r libraries}
+library(ggplot2)
+library(ggmsa)
+```
+
+
+
+### Inputs
+
+```{r paths}
+# Load the hnRNPH1 decoy fasta produced in the heading
+
+fasta <- file.path("hnRNPH1_intron4decoyMSA.fa")
+tree_clade_mapping_file <- file.path("tree_to_clade_mapping.tsv")
+
+fasta_processed <- file.path("hnRNPH1_intron4decoyMSA.processed.fa")
+```
+
+
+
+### Plot the hnRNPH1 intron 4 decoy FASTA
+
+```{r plot-fasta}
+p0 <- ggmsa(
+  fasta,
+  char_width = 0.6,
+  seq_name = TRUE,
+  consensus_views = TRUE,
+  color = "Chemistry_NT"
+)
+
+print(p0)
+```
+
+
+
+### Convert the FASTA to a manuscript-ready version
+
+```{r helpers}
+read_fasta_simple <- function(path) {
+  x <- readLines(path)
+  header_idx <- which(startsWith(x, ">"))
+  seq_starts <- header_idx + 1
+  seq_ends <- c(header_idx[-1] - 1, length(x))
+
+  # Normalize by removing ">" + any whitespace and trim
+  headers <- trimws(sub("^>\\s*", "", x[header_idx]))
+  seqs <- vapply(
+    seq_along(headers),
+    function(i) paste0(x[seq_starts[i]:seq_ends[i]], collapse = ""),
+    character(1)
+  )
+
+  names(seqs) <- headers
+  seqs
+}
+
+write_fasta_simple <- function(seqs, path) {
+  out <- unlist(Map(function(h, s) c(paste0(">", h), s), names(seqs), unname(seqs)))
+  writeLines(out, path)
+}
+
+drop_all_gap_columns <- function(seqs) {
+  m <- do.call(rbind, strsplit(seqs, "", fixed = TRUE))
+  drop <- apply(m, 2, function(col) all(col %in% c("-", "*")))
+  m2 <- m[, !drop, drop = FALSE]
+  apply(m2, 1, paste0, collapse = "")
+}
+```
+
+```{r process-fasta}
+# Load alignment
+seqs <- read_fasta_simple(fasta)
+names(seqs) <- trimws(names(seqs))
+
+# Remove species with large insertions and poor conservation in the region of interest
+remove_species <- c(
+  "colLiv1", "falChe1", "falPer1", "ficAlb2", "zonAlb1", "geoFor1",
+  "taeGut2", "melUnd1", "araMac1", "anaPla1", "galGal4", "melGal1",
+  "allMis1", "cheMyd1", "chrPic2", "pelSin1", "anoCar2", "latCha1",
+  "pseHum1", "apaSpi1", "oryLat2"
+)
+seqs <- seqs[!(names(seqs) %in% remove_species)]
+
+# Rename genomes in FASTA headers to common names using the mapping file
+tree_clade_map <- read.table(
+  tree_clade_mapping_file,
+  header = TRUE,
+  sep = "\t",
+  stringsAsFactors = FALSE,
+  quote = "",
+  comment.char = ""
+)
+species_id_to_common <- setNames(tree_clade_map$matched_common_name, tree_clade_map$species_id)
+new_names <- unname(species_id_to_common[names(seqs)])
+names(seqs) <- ifelse(is.na(new_names) | new_names == "", names(seqs), new_names)
+
+# Convert DNA to RNA for plotting
+seqs <- gsub("T", "U", seqs, fixed = TRUE)
+
+# Remove columns that are gaps/missing across all species
+seqs <- drop_all_gap_columns(seqs)
+
+# Save processed FASTA for plotting
+write_fasta_simple(seqs, fasta_processed)
+```
+
+
+
+### Plot the processed FASTA (with highlight at positions 27–33)
+
+```{r plot-processed-fasta, fig.height=12}
+seq_data <- readLines(fasta_processed)
+seq_count <- sum(grepl("^>", seq_data))
+
+p1 <- ggmsa(
+  fasta_processed,
+  char_width = 0.6,
+  seq_name = TRUE,
+  consensus_views = TRUE,
+  color = "Chemistry_NT"
+) +
+  annotate(
+    "rect",
+    xmin = 27 - 0.5, xmax = 33 + 0.5,
+    ymin = -Inf, ymax = Inf,
+    alpha = 0.2, fill = "yellow", color = "orange", linewidth = 0.8
+  ) +
+  annotate(
+    "text",
+    x = 30, y = seq_count, label = "179,620,576-179,620,582", 
+    color = "black", fontface = "bold", size = 4
+  )
+
+print(p1)
+```
+
