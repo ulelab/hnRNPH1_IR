@@ -94,8 +94,7 @@ cat("Rows after shortest-intron selection:", nrow(merged), "\n")
 ```
 
 ## Decoys dropped at overlap (no matching PSI intron)
-
-`merged` only keeps decoys that overlap at least one **HsaIN** intron in `PSI_TABLE-hg38`. Rows in `bed` with no overlap are dropped here (not from “two decoys in one intron”—each `decoyID` still gets at most one row after shortest-intron selection). This block lists those decoys and writes a small BED of **all** slop24 intervals for the **genes** they belong to, for inspection (e.g. IGV).
+Rows in `bed` with no overlap are dropped here. This block lists those decoys and writes a small BED of **all** slop24 intervals for the **genes** they belong to, for inspection (e.g. IGV).
 
 Gene symbol is parsed from `decoyID` as `GENE_start` by stripping the trailing `_<digits>`.
 
@@ -168,13 +167,15 @@ fwrite(
   merged[, .(chr, intron_start - 1L, intron_end, decoyID, SpliceAI_score, strand)],
   intron_bed,
   sep = "\t",
-  col.names = FALSE
+  col.names = FALSE,
+  eol = "\n"
 )
 fwrite(
   merged[, .(chr, start, end, decoyID, SpliceAI_score, strand)],
   decoy_bed,
   sep = "\t",
-  col.names = FALSE
+  col.names = FALSE,
+  eol = "\n"
 )
 canonical_dt <- merged[, .(
   chr = chr,
@@ -184,7 +185,18 @@ canonical_dt <- merged[, .(
   SpliceAI_score = SpliceAI_score,
   strand = strand
 )]
-fwrite(canonical_dt, canonical_bed, sep = "\t", col.names = FALSE)
+fwrite(canonical_dt, canonical_bed, sep = "\t", col.names = FALSE, eol = "\n")
+
+# Remove any CR characters so bash/awk strand parsing always sees "+" / "-" exactly for MaxEntScan
+normalize_lf <- function(path) {
+  txt <- readChar(path, nchars = file.info(path)$size, useBytes = TRUE)
+  txt <- gsub("\r\n", "\n", txt, fixed = TRUE)
+  txt <- gsub("\r", "\n", txt, fixed = TRUE)
+  writeChar(txt, path, eos = NULL, useBytes = TRUE)
+}
+normalize_lf(intron_bed)
+normalize_lf(decoy_bed)
+normalize_lf(canonical_bed)
 
 cat("Wrote:\n ", intron_bed, "\n ", decoy_bed, "\n ", canonical_bed, "\n")
 ```
@@ -197,16 +209,14 @@ cat("Wrote:\n ", intron_bed, "\n ", decoy_bed, "\n ", canonical_bed, "\n")
 
 ### phastCons (mean over each **intron** segment)
 
-#### Use `scripts/extract_phastcons_scores.sh` (or direct `bigWigAverageOverBed`) with: phastcons bigwig and BED file input coordinates of intron of interest.
-
-### Example:
+#### Use `scripts/extract_phastcons_scores.sh` (or direct `bigWigAverageOverBed`) with: phastcons bigwig and BED file input coordinates of intron of interest. Usage:
 
 #### `$ bash scripts/extract_phastcons_scores.sh reference/hg38.phastCons100way.bw results/intron_segments_for_phastcons.bed > results/phastcons100_by_decoy.tsv`
 #### `$ bash scripts/extract_phastcons_scores.sh reference/hg38.phastCons470way.bw results/intron_segments_for_phastcons.bed > results/phastcons470_by_decoy.tsv`
 
 ### MaxEntScan (decoy site vs canonical 5'SS)
 
-#### Use `scripts/run_maxentscan_decoys.sh` and `scripts/run_maxentscan_canonical.sh` with genome FASTA as third argument, e.g.:
+#### Use `scripts/run_maxentscan_decoys.sh` and `scripts/run_maxentscan_canonical.sh` with genome FASTA as third argument. Usage:
 
 #### `$ bash scripts/run_maxentscan_decoys.sh results/decoy_coords_for_maxent.bed results/maxent_decoy.bed ../../reference/genomes/Gencode49/GRCh38.primary_assembly.genome.fa`
 #### `$ bash scripts/run_maxentscan_canonical.sh results/canonical_coords_for_maxent.bed results/maxent_canonical.bed ../../reference/genomes/Gencode49/GRCh38.primary_assembly.genome.fa`
@@ -227,7 +237,7 @@ final_tsv <- file.path(out_dir, "decoy_intron_features_final.tsv")
 
 ```{r reload-step1}
 if (!file.exists(step1_tsv)) {
-  stop("Missing Part-1 table: ", step1_tsv, " — knit Part 1 first.")
+  stop("Missing Part-1 table: ", step1_tsv, " — run Part 1 first.")
 }
 merged <- fread(step1_tsv, sep = "\t", header = TRUE)
 cat("Reloaded rows:", nrow(merged), " cols:", ncol(merged), "\n")
@@ -318,7 +328,14 @@ p <- ggplot(
   )
 ) +
   geom_point(alpha = 0.5) +
-  geom_point(data = plot_df[decoyID == highlight_id], color = "red", alpha = 0.9, stroke = 1.2) +
+  geom_point(
+    data = plot_df[decoyID == highlight_id],
+    shape = 21,
+    fill = NA,
+    color = "red",
+    stroke = 1.1,
+    show.legend = FALSE
+  ) +
   geom_text(
     data = plot_df[decoyID == highlight_id],
     aes(label = decoyID),

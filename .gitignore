@@ -1,6 +1,5 @@
 reference/
-data/NonPRPF8SpliceSites_f250.bed
 data/PRPF8_iCLIP_HepG2_xlinks.bed
-data/Splice_All.filtered.01min.bed
-data/Splice_All.filtered.2e-4.bed
-data/SupportedSpliceSites_f50.bed
+data/Decoys/Splice_All.filtered.01min.bed
+data/Decoys/SupportedSpliceSites_f50.bed
+data/PRPF8/

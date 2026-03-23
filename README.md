@@ -24,7 +24,12 @@
 
 ### Decoy Feature Table Generation
 
-#### The database of decoys in 'protein-coding' introns is uploaded as `Decoys_proteincoding_slop24.bed` in the `compile_decoy_intron_data.Rmd` to integrate intron retention quantification data from `PSI-TABLE-hg38.tab.gz`. The Rmd file uses Genomic Ranges to combine PSI values in 145 cell and tissue types with SpliceAI inferences, MaxEntScan scoring for canonical and decoy 5' splice sites, calculate nucleotide distance of decoys from the canonical splice site, and integrate average phastCons 100-way and 470-way scoring across the intron harboring the decoy. 
+#### The database of decoys in 'protein-coding' introns is uploaded as `Decoys_proteincoding_slop24.bed` in the `compile_decoy_intron_data.Rmd` to integrate intron retention quantification data from `PSI-TABLE-hg38.tab.gz`. The Rmd file uses Genomic Ranges to integrate intron coordinates, unique identifiers `EVENT` and intron retention PSI values in 145 cell and tissue types with SpliceAI inference. Decoy distance from canonical splice site is calculated with strandwise logic. After overlapping the decoy database with introns, MaxEntScan is used to calculate the strength of decoy predicted splice sites and the canonical 5' splice site for the intron harboring the decoy with the scripts `run_maxentscan_decoy.sh` `run_maxentscan_canonical.sh`.Average phastCons 100-way and 470-way scoring across the intron harboring the decoy is calculated with `extract_phastcons_scores.sh`. Part 2 of the R markdown file reloads the results from MaxEntScan and phastCons and merges into the final feature table.
+
+##### Ten predicted decoys are dropped in feature table generation. Dropped decoyIDs:
+##### "TNNI2_1839212" "SLC7A6_68264187" "OAZ1_2270281" "ITPA_3221726" "ARHGAP40_38626901" "DHX35_38962112"        
+##### "PLCG1_41162940" "SS18L1_62163387" "RP4-583P15.14_63738551" "BHLHB9_102745917"
+##### These loci are largely within protein-coding introns, with the exception of SLC7A6_68264187 and DHX35_38962112 which appear in the 5' UTR/intergenic space. 6 out of the 10 missing loci are in chromosome 20.
 
 ## Figure 1 R Markdown (`scripts/hnRNPH1_figure1.rmd`)
 
