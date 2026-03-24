@@ -5,11 +5,11 @@ output: html_document
 
 <!--
   Two-part workflow:
-  Part 1: Load Decoys_proteincoding_slop24.bed, overlap with Vast-DB PSI Table intron coordinates using GenomicRanges, extract strand-aware distance of decoy from canonical 5' splice site, write step1 TSV + BEDs for bash processing.
+  Part 1: Load Decoys_proteincoding_splicescores.bed, overlap with Vast-DB PSI Table intron coordinates using GenomicRanges, extract strand-aware distance of decoy from canonical 5' splice site, write step1 TSV + BEDs for bash processing.
   After Part 1: Run extract_phastcons_scores.sh to calculate average phastCons scores over intron segments harboring each decoy. Use run_maxentscan_canonical.sh and run_maxentscan_decoy.sh to calculate MaxEntScan score for both the decoy and its canonical 5' splice site in bash; save TSV/BED outputs.
   Part 2: Reload step1 table, merge scores, plot, write final TSV feature table of decoys and their respective introns.
 
-  Input slop24: original 7-column BED (column 7 dropped on load).
+  Input splicescores: original 7-column BED (column 7 dropped on load).
 -->
 
 ```{r setup, include=FALSE}
@@ -22,10 +22,10 @@ library(GenomicRanges)
 library(ggplot2)
 ```
 
-# Part 1 — Load slop24, overlap introns, write intermediate table
+# Part 1 — Load splicescores, overlap introns, write intermediate table
 
 ```{r paths-v3}
-slop24_bed <- "../data/Decoys/Decoys_proteincoding_slop24.bed"
+splice_bed <- "../data/Decoys/Decoys_proteincoding_splicescores.bed"
 psi_table <- "../reference/PSI_TABLE-hg38.tab.gz"
 out_dir <- "../results"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
@@ -33,11 +33,11 @@ dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 step1_tsv <- file.path(out_dir, "decoy_intron_overlap_step1.tsv")
 ```
 
-## Load original slop24 BED
+## Load original splice scores BED
 
-```{r load-slop24-v3}
+```{r load-splice}
 bed <- fread(
-  slop24_bed,
+  splicescores_bed,
   sep = "\t",
   header = FALSE,
   col.names = c("chr", "start", "end", "decoyID", "SpliceAI_score", "strand", "counts")
@@ -45,8 +45,10 @@ bed <- fread(
 bed[, counts := NULL]
 bed[, decoyID := paste0(decoyID, "_", start)]
 
-cat("Rows:", nrow(bed), " Unique decoyID:", uniqueN(bed$decoyID),
-    " Duplicates:", sum(duplicated(bed$decoyID)), "\n")
+cat(
+  "Rows:", nrow(bed), " Unique decoyID:", uniqueN(bed$decoyID),
+  " Duplicates:", sum(duplicated(bed$decoyID)), "\n"
+)
 ```
 
 ## PSI table: HsaIN only, drop `-Q` columns, parse intron coordinates
@@ -94,15 +96,15 @@ cat("Rows after shortest-intron selection:", nrow(merged), "\n")
 ```
 
 ## Decoys dropped at overlap (no matching PSI intron)
-Rows in `bed` with no overlap are dropped here. This block lists those decoys and writes a small BED of **all** slop24 intervals for the **genes** they belong to, for inspection (e.g. IGV).
+Rows in `bed` with no overlap are dropped here. This block lists those decoys and writes a small BED of **all** splice scores intervals for the **genes** they belong to, for inspection (e.g. IGV).
 
 Gene symbol is parsed from `decoyID` as `GENE_start` by stripping the trailing `_<digits>`.
 
 ```{r overlap-dropouts-genes-bed}
-# Decoys present in slop24 but absent after overlap + shortest-intron dedup
+# Decoys present in splicescores but absent after overlap + shortest-intron dedup
 dropped_ids <- setdiff(bed$decoyID, merged$decoyID)
 cat(
-  "Slop24 rows:", nrow(bed), " — kept after overlap:", nrow(merged),
+  "Splice Scores rows:", nrow(bed), " — kept after overlap:", nrow(merged),
   " — dropped:", length(dropped_ids), "\n"
 )
 if (length(dropped_ids) > 0) {
@@ -116,7 +118,7 @@ genes_dropped <- unique(bed[decoyID %in% dropped_ids, gene])
 cat("Genes among dropped decoys (", length(genes_dropped), "):\n", sep = "")
 print(sort(genes_dropped))
 
-dropout_bed <- file.path(out_dir, "dropped_overlap_genes_all_slop24_decoys.bed")
+dropout_bed <- file.path(out_dir, "dropped_overlap_genes_all_splicescores_decoys.bed")
 bed_invest <- bed[gene %in% genes_dropped][order(gene, chr, start)]
 fwrite(
   bed_invest[, .(chr, start, end, decoyID, SpliceAI_score, strand)],
@@ -126,7 +128,7 @@ fwrite(
   quote = FALSE
 )
 cat(
-  "Wrote BED (all slop24 decoys in those genes): ", dropout_bed,
+  "Wrote BED (all splice scores decoys in those genes): ", dropout_bed,
   " rows:", nrow(bed_invest), "\n",
   sep = ""
 )
@@ -155,7 +157,7 @@ cat("Wrote:", step1_tsv, " rows:", nrow(merged), " cols:", ncol(merged), "\n")
 `decoy_intron_overlap_step1.tsv` alone is not enough for external tools: **phastCons** and **MaxEntScan** run in bash on **BED intervals** (and the genome FASTA for MaxEnt). This chunk writes the three BEDs that match the overlap table—**run it whenever you knit Part 1** so the commands in the “Between” section have the expected inputs. (You only skip it if you build equivalent BEDs yourself.)
 
 - **Intron BED** — full intron span → `extract_phastcons_scores.sh` / `bigWigAverageOverBed` (mean conservation over the intron).
-- **Decoy BED** — slop24 decoy interval → `run_maxentscan_decoys.sh`.
+- **Decoy BED** — splice scores decoy interval → `run_maxentscan_decoys.sh`.
 - **Canonical BED** — strand-aware canonical 5′SS (`+`: intron start; `−`: intron end) → `run_maxentscan_canonical.sh`.
 
 ```{r write-bash-input-beds}
@@ -288,8 +290,10 @@ if (file.exists(maxent_canonical_bed)) {
 ## PSI count (columns with value >= 10)
 
 ```{r psi-count-v3}
-meta_cols <- c("GENE", "EVENT", "COORD", "LENGTH", "FullCO", "COMPLEX",
-               "chr", "intron_start", "intron_end", "intron_length")
+meta_cols <- c(
+  "GENE", "EVENT", "COORD", "LENGTH", "FullCO", "COMPLEX",
+  "chr", "intron_start", "intron_end", "intron_length"
+)
 feat <- c(
   "decoy_coord_1based", "decoy_distance_from_canonical_5ss",
   "start", "end", "decoyID", "SpliceAI_score", "strand",
