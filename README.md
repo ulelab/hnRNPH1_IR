@@ -31,6 +31,30 @@
 ##### "PLCG1_41162940" "SS18L1_62163387" "RP4-583P15.14_63738551" "BHLHB9_102745917"
 ##### These loci are largely within protein-coding introns, with the exception of SLC7A6_68264187 and DHX35_38962112 which appear in the 5' UTR/intergenic space. 6 out of the 10 missing loci are in chromosome 20.
 
+## Recount Validation
+
+#### Recount validation is performed with `scripts/query_junctions.py` using inference loci from `Decoys_proteincoding_splicescores.bed` (7-column BED). The script loads loci into an attached in-memory SQLite schema and joins them to the Recount `intron` table from `junctions.sqlite` (run separately for TCGA, SRA, and GTEx junction databases) to generate:
+#### - `results/tcgajunctions.tsv`
+#### - `results/srajunctions.tsv`
+#### - `results/gtexjunctions.tsv`
+####
+#### SQL schema: `sql/locus_recount_schema.sql`
+#### - Defines the temporary locus coordinate table structure used for overlap queries (`chrom`, `start`, `end`, `gene`, `splice_score`, `strand`, `flag`).
+#### - Enables consistent coordinate loading before intersecting against Recount intron junction records.
+####
+#### Script: `scripts/query_junctions.py`
+#### - Connects to Recount SQLite in read-only mode.
+#### - Loads inference loci into an attached in-memory database.
+#### - Matches loci to introns on `chrom` + `strand`, with boundary proximity (`flank_bp`) on intron start/end.
+#### - Filters to reference-supported records (`annotated = 1`).
+#### - Writes full joined outputs as TSV (`--out-tsv`) and optional terminal previews.
+####
+#### Added/returned columns in output TSVs include:
+#### - Locus fields: `locus_id`, `gene`, `chrom`, `locus_start`, `locus_end`, `locus_strand`, `splice_score`
+#### - Junction identity/coordinates: `snaptron_id`, `intron_start`, `intron_end`
+#### - Junction support metrics: `samples_count`, `coverage_sum`, `coverage_avg`, `coverage_median`
+#### - Annotation/source metadata: `left_annotated`, `right_annotated`, `source_dataset_id`, `annotated`
+
 ## Figure 1 R Markdown (`scripts/hnRNPH1_figure1.rmd`)
 
 #### This R Markdown document generates Figure 1: a comparative multiple-sequence alignment view of the hnRNPH1 intron 4 decoy region (`chr5:179620560-179620600`, hg38). It starts from an extracted UCSC multiz MAF alignment (converted to FASTA), plots the raw alignment, then creates a manuscript-ready alignment by renaming taxa, converting DNA bases from `T` to `U`, removing selected outlier species, and dropping columns that are gaps/missing across all taxa.
