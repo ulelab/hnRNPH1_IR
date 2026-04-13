@@ -41,6 +41,16 @@
 #### - Junction support metrics: `samples_count`, `coverage_sum`, `coverage_avg`, `coverage_median`
 #### - Annotation/source metadata: `left_annotated`, `right_annotated`, `source_dataset_id`, `annotated`
 
+#### Unique IDs added back to *junctions.tsv files with `sed -Ei 's/^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)/\2_\4\t\2\t\3\t\4/' tcgajunctions.tsv`
+
+### Defined 3' or 5' splice sites from Recount by determining if the loci of interest match the junction intron start or end using `annotate_recount.sh`
+#### if start_match:
+#### strand + -> junction_type = 5ss
+#### strand - -> junction_type = 3ss
+#### if end_match:
+#### strand + -> junction_type = 3ss
+#### strand - -> junction_type = 5ss
+
 ## Decoy Feature Table Generation
 
 #### The database of decoys in 'protein-coding' introns is uploaded as `Decoys_proteincoding_splicescores.bed` in the `compile_decoy_intron_data.Rmd` to integrate intron retention quantification data from `PSI-TABLE-hg38.tab.gz`. The Rmd file uses Genomic Ranges to integrate intron coordinates, unique identifiers `EVENT` and intron retention PSI values in 145 cell and tissue types with SpliceAI inference. Decoy distance from canonical splice site is calculated with strandwise logic. After overlapping the decoy database with introns, MaxEntScan is used to calculate the strength of decoy predicted splice sites and the canonical 5' splice site for the intron harboring the decoy with the scripts `run_maxentscan_decoy.sh` `run_maxentscan_canonical.sh`.Average phastCons 100-way and 470-way scoring across the intron harboring the decoy is calculated with `extract_phastcons_scores.sh`. Part 2 of the R markdown file reloads the results from MaxEntScan and phastCons and merges into the final feature table.
