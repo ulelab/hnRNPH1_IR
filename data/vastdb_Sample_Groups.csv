@@ -1,0 +1,146 @@
+Sample,sample_group
+Adipose_b,Adipose
+Adipose_c,Adipose
+Adipose_d,Adipose
+Adrenal_b,Endocrine
+Adrenal_c,Endocrine
+Amnion,Reproductive
+Astrocytes,Brain
+Bladder_a,Renal
+Bone_marrow_a,Immune
+Bone_marrow_b,Immune
+Bone_marrow_c,Immune
+Brain_Endoth,Brain
+Breast_a,Other
+Breast_Epith_a,Other
+Cerebellum_a,Brain
+Cerebellum_c,Brain
+Chorion,Reproductive
+CL_293T,Cancer Cell Line
+CL_EndoBH1C_a,Cancer Cell Line
+CL_Gm12878,Cancer Cell Line
+CL_HeLa,Cancer Cell Line
+CL_K562,Cancer Cell Line
+CL_LP1,Cancer Cell Line
+CL_MB231,Cancer Cell Line
+CL_MCF7,Cancer Cell Line
+CL_PNT2,Cancer Cell Line
+CL_SHSY5Y_noRA,Cancer Cell Line
+CL_SHSY5Y_RA,Cancer Cell Line
+Colon_b,Digestive
+Colon_sigmoid,Digestive
+Colon_transverse,Digestive
+Cortex,Brain
+Decidua,Reproductive
+Embr_2C_a_A,Embryo
+Embr_2C_a_B,Embryo
+Embr_4C_a_A,Embryo
+Embr_4C_a_B,Embryo
+Embr_4C_a_C,Embryo
+Embr_8C_a_A,Embryo
+Embr_8C_a_B,Embryo
+Embr_8C_a_C,Embryo
+Embr_8C_a_D,Embryo
+Embr_Cortex_13_17wpc,Brain
+Embr_Forebrain_9_12wpc,Brain
+Embr_Forebrain_St13_14,Brain
+Embr_Forebrain_St17_20,Brain
+Embr_Forebrain_St22_23,Brain
+Embr_ICM_a_A,Embryo
+Embr_Morula_a_A,Embryo
+Embr_Morula_a_B,Embryo
+Embr_TE_a_A,Embryo
+Embr_TE_a_B,Embryo
+EndomStromCells,Other
+EndothCells,Other
+EpithelialCells,Other
+ESC_H1_a,Stem Cell
+ESC_H1_b,Stem Cell
+ESC_H1_c,Stem Cell
+ESC_H1_d,Stem Cell
+ESC_H9_a,Stem Cell
+ESC_H9_b,Stem Cell
+Fibroblasts,Other
+Frontal_Gyrus_old,Brain
+Frontal_Gyrus_young,Brain
+GLS_cells,Other
+Heart_a,Cardiac
+Heart_b,Cardiac
+Heart_c,Cardiac
+HFDPC,Epithelial
+HMEpC_a,Epithelial
+iPS_a,Stem Cell
+iPS_b,Stem Cell
+Kidney_d,Renal
+Kidney_e,Renal
+Kidney_f,Renal
+Liver_a,Digestive
+Liver_b,Digestive
+Liver_c,Digestive
+Lung_b,Respiratory
+Lung_e,Respiratory
+Lung_f,Respiratory
+Lymph_node_b,Immune
+Lymph_node_c,Immune
+Melanocytes,Skin
+Microglia,Brain
+MonoNucCells,Blood
+MSC,Stem Cell
+Muscle_b,Muscle
+Muscle_d,Muscle
+Muscle_e,Muscle
+NCC_Cranial_c,Embryo
+NCC_default_b,Embryo
+NCC_Enteric_b,Embryo
+NCC_Melano_biased_b,Embryo
+Neuroblastoma,Brain
+Neurons,Brain
+Neurons_Cortex_KCl_0h,Brain
+Neurons_Cortex_KCl_1h,Brain
+Neurons_Cortex_KCl_6h,Brain
+NPC_a,Brain
+NPC_b,Brain
+Oligodendrocytes,Brain
+Oocyte_a_A,Reproductive
+Ovary_a,Reproductive
+Ovary_b,Reproductive
+Pancreas_Acinar_Old,Digestive
+Pancreas_Acinar_Young,Digestive
+Pancreas_Alpha_Old,Digestive
+Pancreas_Alpha_Young,Digestive
+Pancreas_Beta_Old,Digestive
+Pancreas_Beta_Young,Digestive
+Pancreas_Duct_Old,Digestive
+Pancreas_Duct_Young,Digestive
+Placenta_a,Reproductive
+Placenta_b,Reproductive
+Placenta_c,Reproductive
+Placenta_Epith,Reproductive
+Prostate_b,Reproductive
+Prostate_c,Reproductive
+Prostate_d,Reproductive
+Retina_a,Brain
+Retina_macular,Brain
+Retina_peripheral,Brain
+Skin_a,Epithelial
+Skin_b,Epithelial
+Skin_c,Epithelial
+Skin_d,Epithelial
+Small_intestine,Digestive
+Spleen_a,Immune
+Spleen_b,Immune
+Stomach_a,Digestive
+Stomach_b,Digestive
+Sup_Temporal_Gyrus,Brain
+Testis_a,Reproductive
+Testis_b,Reproductive
+Testis_c,Reproductive
+Thymus_a,Immune
+Thymus_b,Immune
+Thyroid_b,Endocrine
+Thyroid_c,Endocrine
+Thyroid_d,Endocrine
+WBC_d,Blood
+WBC_e,Blood
+Whole_Brain_b,Brain
+Zygote_a_A,Embryo

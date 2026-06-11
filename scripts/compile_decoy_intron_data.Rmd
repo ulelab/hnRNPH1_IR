@@ -304,61 +304,291 @@ psi_num <- psi_cols[sapply(merged[, ..psi_cols], is.numeric)]
 merged[, psi_count_ge10 := rowSums(.SD >= 10, na.rm = TRUE), .SDcols = psi_num]
 ```
 
+## mESC IRFinder retention (WT replicates) + Brain tissue PSI counts
+
+Lift hg38 Vast-DB introns to mm10 with UCSC chain file, then overlap lifted intervals with IRFinder introns (mean `IRratio` across WT_1–WT_3).
+
+```{r mesc-irfinder-brain}
+library(rtracklayer)
+
+sample_groups <- fread("../data/vastdb_Sample_Groups.csv")
+brain_samples <- sample_groups[sample_group == "Brain", Sample]
+brain_cols <- intersect(brain_samples, names(merged))
+if (length(brain_cols) == 0) {
+  stop("No Brain sample columns from vastdb_Sample_Groups.csv matched merged table.")
+}
+merged[, psi_count_ge10_brain := rowSums(.SD >= 10, na.rm = TRUE), .SDcols = brain_cols]
+merged[, brain_retained := psi_count_ge10_brain >= 3L]
+
+normalize_chr <- function(x) {
+  x <- as.character(x)
+  ifelse(grepl("^chr", x, ignore.case = TRUE), sub("^CHR", "chr", x), paste0("chr", x))
+}
+
+ir_dir <- "../data/Decoys/mESC_rnaIRfinder"
+ir_files <- list.files(ir_dir, pattern = "WT_.*IRFinder-IR-dir\\.txt$", full.names = TRUE)
+if (length(ir_files) == 0) {
+  merged[, `:=`(
+    mESC_IRratio_mean = NA_real_,
+    mESC_IR_overlap_bp = NA_integer_,
+    mESC_lift_Chr = NA_character_,
+    mESC_lift_Start = NA_integer_,
+    mESC_lift_End = NA_integer_,
+    mESC_ir_Chr = NA_character_,
+    mESC_ir_Start = NA_integer_,
+    mESC_ir_End = NA_integer_,
+    mESC_ir_gene = NA_character_
+  )]
+  cat("Note: no mESC IRFinder files in ", ir_dir, " — mESC IR not merged.\n", sep = "")
+} else {
+  chain_gz <- "../reference/hg38ToMm10.over.chain.gz"
+  chain_plain <- "../reference/hg38ToMm10.over.chain"
+  chain_url <- "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/hg38ToMm10.over.chain.gz"
+  if (!file.exists(chain_gz) && !file.exists(chain_plain)) {
+    dir.create(dirname(chain_gz), showWarnings = FALSE, recursive = TRUE)
+    cat("Downloading ", chain_url, " ...\n", sep = "")
+    download.file(chain_url, chain_gz, mode = "wb", quiet = TRUE)
+  }
+  if (!file.exists(chain_plain)) {
+    if (!file.exists(chain_gz)) {
+      stop("Missing liftOver chain file: ", chain_gz)
+    }
+    cat("Decompressing chain file for rtracklayer ...\n")
+    system2("gunzip", c("-k", chain_gz), stdout = FALSE, stderr = FALSE)
+  }
+
+  ir_all <- rbindlist(lapply(ir_files, fread))
+  ir_all[, c("ir_gene", "ensembl") := tstrsplit(Name, "/", fixed = TRUE, keep = 1:2)]
+  ir_mean <- ir_all[
+    , .(IRratio_mean = mean(IRratio, na.rm = TRUE), n_reps = .N),
+    by = .(Chr, Start, End, ir_gene)
+  ]
+  ir_gr <- GRanges(
+    seqnames = normalize_chr(ir_mean$Chr),
+    ranges = IRanges(start = ir_mean$Start + 1L, end = ir_mean$End),
+    IRratio_mean = ir_mean$IRratio_mean,
+    ir_gene = ir_mean$ir_gene
+  )
+
+  chain <- import.chain(chain_plain)
+  intron_dt <- unique(merged[, .(decoyID, chr, intron_start, intron_end, strand)])
+  intron_gr <- GRanges(
+    seqnames = normalize_chr(intron_dt$chr),
+    ranges = IRanges(intron_dt$intron_start, intron_dt$intron_end),
+    strand = intron_dt$strand,
+    decoyID = intron_dt$decoyID
+  )
+  lifted_list <- liftOver(intron_gr, chain)
+  lifted_gr <- unlist(lifted_list, use.names = FALSE)
+  mcols(lifted_gr)$decoyID <- rep(mcols(intron_gr)$decoyID, elementNROWS(lifted_list))
+
+  hits <- findOverlaps(lifted_gr, ir_gr)
+  hit_dt <- data.table(
+    decoyID = mcols(lifted_gr)$decoyID[queryHits(hits)],
+    IRratio_mean = mcols(ir_gr)$IRratio_mean[subjectHits(hits)],
+    mESC_ir_gene = mcols(ir_gr)$ir_gene[subjectHits(hits)],
+    mESC_lift_Chr = as.character(seqnames(lifted_gr)[queryHits(hits)]),
+    mESC_lift_Start = start(lifted_gr)[queryHits(hits)],
+    mESC_lift_End = end(lifted_gr)[queryHits(hits)],
+    mESC_ir_Chr = as.character(seqnames(ir_gr)[subjectHits(hits)]),
+    mESC_ir_Start = start(ir_gr)[subjectHits(hits)],
+    mESC_ir_End = end(ir_gr)[subjectHits(hits)],
+    mESC_IR_overlap_bp = pmax(
+      0L,
+      pmin(end(lifted_gr)[queryHits(hits)], end(ir_gr)[subjectHits(hits)]) -
+        pmax(start(lifted_gr)[queryHits(hits)], start(ir_gr)[subjectHits(hits)]) + 1L
+    )
+  )
+  ir_best <- hit_dt[, .SD[which.max(mESC_IR_overlap_bp)], by = decoyID]
+
+  merged <- merge(
+    merged,
+    ir_best[, .(
+      decoyID,
+      mESC_IRratio_mean = IRratio_mean,
+      mESC_IR_overlap_bp,
+      mESC_lift_Chr,
+      mESC_lift_Start,
+      mESC_lift_End,
+      mESC_ir_Chr,
+      mESC_ir_Start,
+      mESC_ir_End,
+      mESC_ir_gene
+    )],
+    by = "decoyID",
+    all.x = TRUE
+  )
+  cat(
+    "mESC IRFinder (liftOver hg38->mm10): merged mean IRratio for ",
+    sum(!is.na(merged$mESC_IRratio_mean)), " / ", nrow(merged),
+    " decoys (", length(ir_files), " WT replicates).\n",
+    sep = ""
+  )
+}
+cat("Brain tissues (sample_group == Brain): ", length(brain_cols), "\n", sep = "")
+cat("Decoys with PSI >= 10 in >= 3 Brain tissues: ", sum(merged$brain_retained, na.rm = TRUE), "\n", sep = "")
+```
+
 ```{r reorder-v3}
 bed_cols <- c("chr", "start", "end", "decoyID", "SpliceAI_score", "strand")
 pref <- c(
   "decoy_coord_1based", "decoy_distance_from_canonical_5ss",
   "MaxEnt_decoy", "MaxEnt_canonical",
-  "phastCons470_mean", "phastCons100_mean", "psi_count_ge10"
+  "phastCons470_mean", "phastCons100_mean",
+  "psi_count_ge10", "psi_count_ge10_brain", "brain_retained",
+  "mESC_IRratio_mean", "mESC_IR_overlap_bp",
+  "mESC_lift_Chr", "mESC_lift_Start", "mESC_lift_End",
+  "mESC_ir_Chr", "mESC_ir_Start", "mESC_ir_End", "mESC_ir_gene"
 )
 pref <- pref[pref %in% names(merged)]
 setcolorder(merged, c(bed_cols, pref, setdiff(names(merged), c(bed_cols, pref))))
 ```
 
-## Plot: log distance vs PSI-count, size = SpliceAI, color = phastCons470
+## Plot: phastCons vs mESC IR retention (WT IRFinder)
 
-```{r plot-v3}
-plot_df <- merged[!is.na(decoy_distance_from_canonical_5ss) & !is.na(psi_count_ge10)]
-plot_df[, log_distance_from_5ss := log10(abs(decoy_distance_from_canonical_5ss) + 1)]
-highlight_id <- "HNRNPH1_179620582"
+hg38 introns are lifted to mm10 (`hg38ToMm10.over.chain`) and overlapped with IRFinder intervals. Y-axis = mean `IRratio` across WT_1–WT_3 replicates.
 
-p <- ggplot(
-  plot_df,
-  aes(
-    x = log_distance_from_5ss,
-    y = psi_count_ge10,
-    size = SpliceAI_score,
-    color = phastCons470_mean
-  )
-) +
-  geom_point(alpha = 0.5) +
-  geom_point(
-    data = plot_df[decoyID == highlight_id],
-    shape = 21,
-    fill = NA,
-    color = "red",
-    stroke = 1.1,
-    show.legend = FALSE
-  ) +
-  geom_text(
-    data = plot_df[decoyID == highlight_id],
-    aes(label = decoyID),
-    color = "red",
-    vjust = -0.8,
-    size = 3,
-    show.legend = FALSE
-  ) +
-  labs(
-    title = "Log distance from canonical 5'SS vs PSI columns >= 10",
-    x = "log10(|distance| + 1)",
-    y = "Count of PSI columns >= 10",
-    size = "SpliceAI score",
-    color = "phastCons 470-way (intron mean)"
-  ) +
-  scale_color_viridis_c(option = "C", na.value = "grey80") +
-  theme_bw()
+```{r plot-phastcons-mesc-ir}
+library(ggrepel)
 
-print(p)
+plot_df_mesc <- merged[!is.na(mESC_IRratio_mean) & !is.na(GENE)]
+brain_label_min <- max(1L, as.integer(ceiling(50 * length(brain_cols) / length(psi_num))))
+
+plot_phastcons_y <- function(
+  df,
+  y_col,
+  y_label,
+  x_col,
+  x_label,
+  title,
+  label_y_min = NULL,
+  label_y_max = NULL
+) {
+  plot_data <- df[!is.na(get(x_col)) & !is.na(get(y_col))]
+  label_plot <- plot_data[
+    SpliceAI_score > 0.1 &
+      !is.na(SpliceAI_score) &
+      get(x_col) > 0.3
+  ]
+  if (!is.null(label_y_min)) {
+    label_plot <- label_plot[get(y_col) >= label_y_min]
+  }
+  if (!is.null(label_y_max)) {
+    label_plot <- label_plot[get(y_col) <= label_y_max]
+  }
+  label_plot <- label_plot[order(-get(y_col), -SpliceAI_score)][1:min(15L, .N)]
+  if (nrow(label_plot) > 0) {
+    label_plot[, label_color := ifelse(grepl("^HNRNP", GENE, ignore.case = TRUE), "salmon", "blue")]
+  }
+
+  ggplot(plot_data, aes(x = .data[[x_col]], y = .data[[y_col]], size = SpliceAI_score)) +
+    geom_point(alpha = 0.5, color = "grey35") +
+    geom_text_repel(
+      data = label_plot,
+      aes(label = GENE, color = label_color),
+      size = 3,
+      max.overlaps = Inf,
+      show.legend = FALSE
+    ) +
+    scale_color_identity() +
+    labs(
+      title = title,
+      x = x_label,
+      y = y_label,
+      size = "SpliceAI score"
+    ) +
+    theme_bw()
+}
+
+p_mesc_ph100 <- plot_phastcons_y(
+  plot_df_mesc,
+  "mESC_IRratio_mean",
+  "mESC intron retention (mean IRratio, WT)",
+  "phastCons100_mean",
+  "phastCons 100-way (intron mean)",
+  "phastCons 100-way vs mESC intron retention",
+  label_y_min = 0.1
+)
+p_mesc_ph470 <- plot_phastcons_y(
+  plot_df_mesc,
+  "mESC_IRratio_mean",
+  "mESC intron retention (mean IRratio, WT)",
+  "phastCons470_mean",
+  "phastCons 470-way (intron mean)",
+  "phastCons 470-way vs mESC intron retention",
+  label_y_min = 0.1
+)
+
+print(p_mesc_ph100)
+print(p_mesc_ph470)
+```
+
+## Plot: phastCons vs Brain tissues with PSI > 10
+
+Only decoys retained (PSI >= 10) in at least three Vast-DB samples with `sample_group == Brain`. Y-axis counts Brain tissues only.
+
+```{r plot-phastcons-brain-psi}
+plot_df_brain <- merged[
+  brain_retained == TRUE & !is.na(psi_count_ge10_brain) & !is.na(GENE)
+]
+
+p_brain_ph100 <- plot_phastcons_y(
+  plot_df_brain,
+  "psi_count_ge10_brain",
+  "Number of Brain tissues with PSI > 10",
+  "phastCons100_mean",
+  "phastCons 100-way (intron mean)",
+  "phastCons 100-way vs Brain tissues with PSI > 10",
+  label_y_min = brain_label_min
+)
+p_brain_ph470 <- plot_phastcons_y(
+  plot_df_brain,
+  "psi_count_ge10_brain",
+  "Number of Brain tissues with PSI > 10",
+  "phastCons470_mean",
+  "phastCons 470-way (intron mean)",
+  "phastCons 470-way vs Brain tissues with PSI > 10",
+  label_y_min = brain_label_min
+)
+
+print(p_brain_ph100)
+print(p_brain_ph470)
+```
+
+## Export: IR candidate coordinates for reproduction
+
+Minimal table for highlighted Mouse IR and Hs Brain IR candidates (`../results/decoy_IR_candidates_mouse_brain.tsv`). Includes hg38 decoy/intron coordinates, mm10 liftOver interval, matched IRFinder interval, mESC `IRratio`, and Brain tissues with PSI >= 10.
+
+```{r export-ir-candidates}
+candidate_ids <- fread("../results/decoy_IR_candidates_mouse_brain.tsv")[, decoyID]
+export_dt <- merged[decoyID %in% candidate_ids]
+export_dt[, brain_tissues_PSI_ge10 := apply(
+  .SD, 1,
+  function(v) paste(brain_cols[!is.na(v) & v >= 10], collapse = ";")
+), .SDcols = brain_cols]
+
+export_cols <- c(
+  "candidate_group", "GENE", "EVENT", "COORD", "intron_length", "chr", "strand",
+  "decoyID", "start", "end", "decoy_coord_1based", "decoy_distance_from_canonical_5ss",
+  "intron_start", "intron_end",
+  "mESC_lift_Chr", "mESC_lift_Start", "mESC_lift_End",
+  "mESC_ir_Chr", "mESC_ir_Start", "mESC_ir_End", "mESC_ir_gene",
+  "mESC_IRratio_mean", "mESC_IR_overlap_bp",
+  "psi_count_ge10", "psi_count_ge10_brain", "brain_retained", "brain_tissues_PSI_ge10",
+  "SpliceAI_score", "phastCons100_mean", "phastCons470_mean",
+  "MaxEnt_decoy", "MaxEnt_canonical"
+)
+export_dt <- merge(
+  fread("../results/decoy_IR_candidates_mouse_brain.tsv")[, .(candidate_group, decoyID)],
+  export_dt,
+  by = "decoyID",
+  all.x = TRUE
+)
+export_cols <- export_cols[export_cols %in% names(export_dt)]
+candidate_export <- export_dt[, ..export_cols]
+candidate_export_tsv <- file.path(out_dir, "decoy_IR_candidates_reproduction.tsv")
+fwrite(candidate_export, candidate_export_tsv, sep = "\t", quote = FALSE)
+cat("Wrote candidate export:", candidate_export_tsv, " rows:", nrow(candidate_export), "\n")
 ```
 
 ```{r write-final-v3}

@@ -1,0 +1,13 @@
+candidate_group	gene_symbol	EVENT	COORD	decoyID	strand	intron_length	decoy_distance_from_canonical_5ss	SpliceAI_score	phastCons470_mean	phastCons100_mean	mESC_IRratio_mean	psi_count_ge10	psi_count_ge10_brain	role_notes
+Mouse_IR	GPC2	HsaINT0071009	chr7:100176366-100177033	GPC2_100176365	-	668	667	0.268	0.379	0.281	0.726	29	7	Glypican-2 HSPG; neural/developmental surface protein; minimal RBP/chromatin link
+Mouse_IR	LMAN2L	HsaINT0092350	chr2:96733602-96734408	LMAN2L_96734115	-	807	292	0.295	0.393	0.267	0.115	24	2	ER/Golgi lectin in glycoprotein sorting; minimal RBP/chromatin link
+Mouse_IR	RNF167	HsaINT0141412	chr17:4941158-4942340	RNF167_4941442	+	1183	285	0.021	0.046	0.041	0.226	11	4	E3 ubiquitin ligase in endosomal trafficking; minimal RBP/chromatin link
+Hs_Brain_IR	DOCK11	HsaINT0051039	chrX:118683230-118685687	DOCK11_118683620	+	2458	391	0.105	0.180	0.131	0.000	106	21	DOCK-family GEF; immune/neuronal signaling; minimal direct splicing/RBP link
+Hs_Brain_IR	THRAP3	HsaINT0166896	chr1:36287271-36289059	THRAP3_36287870	+	1789	600	0.302	0.499	0.440	0.018	27	9	Mediator/TRAP subunit (TRAP150); transcription elongation and RNA-processing coupling
+Hs_Brain_IR	RANBP17	HsaINT0137124	chr5:171293982-171295886	RANBP17_171294168	+	1905	187	0.290	0.377	0.391	0.078	35	10	Karyopherin-beta family nuclear import factor; minimal RBP/chromatin link
+Hs_Brain_IR	DMD	HsaINT1011252	chrX:31121931-31126641	DMD_31126062	-	4711	578	0.440	0.302	0.255	0.005	33	11	Dystrophin; long highly spliced muscle/neuronal transcript; AS complexity relevant
+Hs_Brain_IR	SCN8A	HsaINT0145956	chr12:51780772-51786541	SCN8A_51782986	+	5770	2215	0.257	0.317	0.244	0.000	56	13	Nav1.6 voltage-gated sodium channel; brain/neuronal excitability gene
+Hs_Brain_IR	TSPOAP1	HsaINT0019306	chr17:58323546-58324810	TSPOAP1_58324381	-	1265	428	0.688	0.319	0.122	0.000	71	13	TSPO-associated protein; cytoskeleton/microtubule organization; minimal RBP link
+Hs_Brain_IR	ZDHHC23	HsaINT0185238	chr3:113948191-113948793	ZDHHC23_113948461	+	603	271	0.368	0.338	0.165	0.000	115	21	Palmitoyltransferase; post-translational lipid modification; minimal splicing link
+Hs_Brain_IR	TNS2	HsaINT0165694	chr12:53047064-53051854	TNS2_53047372	+	4791	309	0.479	0.342	0.222	0.000	122	24	Tensin family adaptor at focal adhesions; signaling scaffold; minimal RBP link
+Hs_Brain_IR	ANK3	HsaINT1003659	chr10:60068010-60068636	ANK3_60068144	-	627	491	0.020	0.812	0.816	0.000	32	14	Ankyrin-G; axon initial segment/neuronal architecture; extensive isoform splicing
