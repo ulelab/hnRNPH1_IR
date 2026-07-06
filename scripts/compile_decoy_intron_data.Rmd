@@ -400,6 +400,10 @@ if (length(ir_files) == 0) {
     )
   )
   ir_best <- hit_dt[, .SD[which.max(mESC_IR_overlap_bp)], by = decoyID]
+  n_introns <- length(intron_gr)
+  n_lifted <- sum(elementNROWS(lifted_list) > 0L)
+  n_lifted_segments <- length(lifted_gr)
+  n_irfinder_overlap <- uniqueN(hit_dt$decoyID)
 
   merged <- merge(
     merged,
@@ -419,9 +423,10 @@ if (length(ir_files) == 0) {
     all.x = TRUE
   )
   cat(
-    "mESC IRFinder (liftOver hg38->mm10): merged mean IRratio for ",
-    sum(!is.na(merged$mESC_IRratio_mean)), " / ", nrow(merged),
-    " decoys (", length(ir_files), " WT replicates).\n",
+    "mESC liftOver hg38->mm10: introns lifted ", n_lifted, " / ", n_introns,
+    " (", n_lifted_segments, " lifted segments); IRFinder overlap ", n_irfinder_overlap,
+    "; IRratio merged ", sum(!is.na(merged$mESC_IRratio_mean)), " / ", nrow(merged),
+    " (", length(ir_files), " WT replicates).\n",
     sep = ""
   )
 }
@@ -521,6 +526,7 @@ p_mesc_ph470 <- plot_phastcons_y(
 
 print(p_mesc_ph100)
 print(p_mesc_ph470)
+ggsave(file.path("../figures/phastCons470_vs_mesc_ir_retention.pdf"), p_mesc_ph470, width = 8, height = 6)
 ```
 
 ## Plot: phastCons vs Brain tissues with PSI > 10
@@ -553,14 +559,47 @@ p_brain_ph470 <- plot_phastcons_y(
 
 print(p_brain_ph100)
 print(p_brain_ph470)
+ggsave(file.path("../figures/phastCons470_vs_brain_psi.pdf"), p_brain_ph470, width = 8, height = 6)
 ```
 
-## Export: IR candidate coordinates for reproduction
+## Export: mESC liftOver plot table (all IR-matched loci)
 
-Minimal table for highlighted Mouse IR and Hs Brain IR candidates (`../results/decoy_IR_candidates_mouse_brain.tsv`). Includes hg38 decoy/intron coordinates, mm10 liftOver interval, matched IRFinder interval, mESC `IRratio`, and Brain tissues with PSI >= 10.
+Full plotting table for all decoys with a matched mESC `IRratio` after hg38→mm10 liftOver and IRFinder overlap. Use hg38 `phastCons*_mean` with `mESC_IRratio_mean` for mESC IR plots; mm10 coordinates are in `mESC_lift_*` and `mESC_ir_*`.
+
+```{r export-mesc-plot-table}
+candidates <- fread("../results/decoy_IR_candidates_mouse_brain.tsv")[, .(candidate_group, decoyID)]
+plot_export <- merge(
+  merged[!is.na(mESC_IRratio_mean)],
+  candidates,
+  by = "decoyID",
+  all.x = TRUE
+)
+plot_cols <- c(
+  "candidate_group", "GENE", "EVENT", "COORD", "intron_length", "chr", "strand",
+  "decoyID", "start", "end", "decoy_coord_1based", "decoy_distance_from_canonical_5ss",
+  "intron_start", "intron_end",
+  "mESC_lift_Chr", "mESC_lift_Start", "mESC_lift_End",
+  "mESC_ir_Chr", "mESC_ir_Start", "mESC_ir_End", "mESC_ir_gene",
+  "mESC_IRratio_mean", "mESC_IR_overlap_bp",
+  "psi_count_ge10", "psi_count_ge10_brain", "brain_retained",
+  "SpliceAI_score", "phastCons100_mean", "phastCons470_mean",
+  "MaxEnt_decoy", "MaxEnt_canonical"
+)
+plot_cols <- plot_cols[plot_cols %in% names(plot_export)]
+mesc_plot_tsv <- file.path(out_dir, "decoy_intron_mesc_liftover_plot_table.tsv")
+fwrite(plot_export[, ..plot_cols], mesc_plot_tsv, sep = "\t", quote = FALSE)
+cat(
+  "Wrote mESC plot table:", mesc_plot_tsv,
+  " rows:", nrow(plot_export), "\n",
+  sep = ""
+)
+```
+
+## Export: IR candidate coordinates (12 highlighted genes)
 
 ```{r export-ir-candidates}
-candidate_ids <- fread("../results/decoy_IR_candidates_mouse_brain.tsv")[, decoyID]
+candidates <- fread("../results/decoy_IR_candidates_mouse_brain.tsv")[, .(candidate_group, decoyID)]
+candidate_ids <- candidates[, decoyID]
 export_dt <- merged[decoyID %in% candidate_ids]
 export_dt[, brain_tissues_PSI_ge10 := apply(
   .SD, 1,
@@ -578,17 +617,11 @@ export_cols <- c(
   "SpliceAI_score", "phastCons100_mean", "phastCons470_mean",
   "MaxEnt_decoy", "MaxEnt_canonical"
 )
-export_dt <- merge(
-  fread("../results/decoy_IR_candidates_mouse_brain.tsv")[, .(candidate_group, decoyID)],
-  export_dt,
-  by = "decoyID",
-  all.x = TRUE
-)
+export_dt <- merge(candidates, export_dt, by = "decoyID", all.x = TRUE)
 export_cols <- export_cols[export_cols %in% names(export_dt)]
-candidate_export <- export_dt[, ..export_cols]
-candidate_export_tsv <- file.path(out_dir, "decoy_IR_candidates_reproduction.tsv")
-fwrite(candidate_export, candidate_export_tsv, sep = "\t", quote = FALSE)
-cat("Wrote candidate export:", candidate_export_tsv, " rows:", nrow(candidate_export), "\n")
+candidate_export_tsv <- file.path(out_dir, "decoy_IRfinder_mESCliftover.tsv")
+fwrite(export_dt[, ..export_cols], candidate_export_tsv, sep = "\t", quote = FALSE)
+cat("Wrote candidate export:", candidate_export_tsv, " rows:", nrow(export_dt), "\n")
 ```
 
 ```{r write-final-v3}
