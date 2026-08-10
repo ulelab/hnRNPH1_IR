@@ -1,0 +1,388 @@
+---
+title: "Decoy ID and Exon Overlap Analysis"
+author: "Analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r load-libraries}
+library(GenomicRanges)
+library(rtracklayer)
+library(dplyr)
+```
+
+```{r load-data}
+# Load decoyIDs.bed file
+# BED format: chr, start, end, name, score, strand, (additional column)
+decoy_bed <- read.table("decoyIDs.bed", 
+                        sep = " ", 
+                        header = FALSE,
+                        stringsAsFactors = FALSE)
+
+# Set column names for BED file
+colnames(decoy_bed) <- c("chr", "start", "end", "name", "score", "strand", "extra")
+
+# Convert to 1-based coordinates (BED is 0-based, GenomicRanges uses 1-based)
+# Note: BED start is 0-based, end is 1-based, so we add 1 to start
+decoy_gr <- GRanges(
+  seqnames = decoy_bed$chr,
+  ranges = IRanges(start = decoy_bed$start + 1, end = decoy_bed$end),
+  strand = decoy_bed$strand,
+  name = decoy_bed$name,
+  score = decoy_bed$score
+)
+
+cat("Loaded", length(decoy_gr), "decoy ID regions\n")
+```
+
+```{r load-gtf}
+# Load GTF file and filter for exons only
+gtf <- import("gencode.v49.annotation.gtf.gz", format = "gtf")
+
+# Filter for exon features only
+exon_gr <- gtf[gtf$type == "exon"]
+
+cat("Loaded", length(exon_gr), "exon regions from GTF\n")
+```
+
+```{r find-overlaps}
+# Find overlaps between decoy IDs and exons
+# This finds all pairs where there is any overlap
+overlaps <- findOverlaps(query = decoy_gr, subject = exon_gr)
+
+cat("Found", length(overlaps), "overlapping pairs\n")
+```
+
+```{r create-overlap-table}
+# Create a data frame with overlap information
+overlap_df <- data.frame(
+  decoy_name = decoy_gr[queryHits(overlaps)]$name,
+  decoy_chr = seqnames(decoy_gr[queryHits(overlaps)]),
+  decoy_start = start(decoy_gr[queryHits(overlaps)]),
+  decoy_end = end(decoy_gr[queryHits(overlaps)]),
+  decoy_strand = strand(decoy_gr[queryHits(overlaps)]),
+  decoy_score = decoy_gr[queryHits(overlaps)]$score,
+  exon_chr = seqnames(exon_gr[subjectHits(overlaps)]),
+  exon_start = start(exon_gr[subjectHits(overlaps)]),
+  exon_end = end(exon_gr[subjectHits(overlaps)]),
+  exon_strand = strand(exon_gr[subjectHits(overlaps)]),
+  gene_id = exon_gr[subjectHits(overlaps)]$gene_id,
+  gene_name = exon_gr[subjectHits(overlaps)]$gene_name,
+  transcript_id = exon_gr[subjectHits(overlaps)]$transcript_id,
+  exon_number = exon_gr[subjectHits(overlaps)]$exon_number,
+  stringsAsFactors = FALSE
+)
+
+# Calculate overlap length
+overlap_df$overlap_length <- pmin(overlap_df$decoy_end, overlap_df$exon_end) - 
+                            pmax(overlap_df$decoy_start, overlap_df$exon_start) + 1
+
+cat("Created overlap table with", nrow(overlap_df), "rows\n")
+```
+
+```{r summary-statistics}
+# Summary statistics
+cat("Summary Statistics:\n")
+cat("  Total decoy IDs:", length(decoy_gr), "\n")
+cat("  Total exons:", length(exon_gr), "\n")
+cat("  Decoy IDs with exon overlaps:", length(unique(overlap_df$decoy_name)), "\n")
+cat("  Total overlap pairs:", nrow(overlap_df), "\n")
+cat("  Mean overlap length:", round(mean(overlap_df$overlap_length), 2), "bp\n")
+cat("  Median overlap length:", round(median(overlap_df$overlap_length), 2), "bp\n")
+```
+
+```{r view-overlaps}
+# View first few overlaps
+head(overlap_df, n = 20)
+```
+
+```{r strand-matching}
+# Check strand matching
+overlap_df$strand_match <- overlap_df$decoy_strand == overlap_df$exon_strand
+
+cat("Strand matching:\n")
+cat("  Same strand:", sum(overlap_df$strand_match), "\n")
+cat("  Opposite strand:", sum(!overlap_df$strand_match), "\n")
+```
+
+```{r save-results}
+# Save results to file
+write.table(overlap_df, 
+            file = "decoy_exon_overlaps.tsv",
+            sep = "\t",
+            quote = FALSE,
+            row.names = FALSE)
+
+cat("Results saved to decoy_exon_overlaps.tsv\n")
+```
+
+# Non-Exonic SpliceAI Dataset Overlap Analysis
+
+This section analyzes overlaps between the filtered non-exonic SpliceAI dataset and exons, **without strand matching**.
+
+```{r load-non-exonic-spliceai}
+# Load SpliceAI_MAF_non_exonic.tsv
+spliceai_non_exonic <- read.table("SpliceAI_MAF_non_exonic.tsv",
+                                  sep = "\t",
+                                  header = TRUE,
+                                  stringsAsFactors = FALSE)
+
+# Extract decoyIDs
+non_exonic_decoy_ids <- unique(spliceai_non_exonic$decoyID)
+
+cat("Loaded", nrow(spliceai_non_exonic), "rows from SpliceAI_MAF_non_exonic.tsv\n")
+cat("Unique decoy IDs:", length(non_exonic_decoy_ids), "\n")
+```
+
+```{r match-non-exonic-to-bed}
+# Match non-exonic decoyIDs to BED coordinates
+# Use the decoy_bed data frame loaded earlier
+non_exonic_bed <- decoy_bed[decoy_bed$name %in% non_exonic_decoy_ids, ]
+
+cat("Matched", nrow(non_exonic_bed), "decoy IDs to BED coordinates\n")
+cat("Unmatched decoy IDs:", length(non_exonic_decoy_ids) - nrow(non_exonic_bed), "\n")
+```
+
+```{r create-non-exonic-granges}
+# Create GRanges object for non-exonic decoy IDs
+# Convert to 1-based coordinates (BED is 0-based, GenomicRanges uses 1-based)
+non_exonic_gr <- GRanges(
+  seqnames = non_exonic_bed$chr,
+  ranges = IRanges(start = non_exonic_bed$start + 1, end = non_exonic_bed$end),
+  strand = non_exonic_bed$strand,
+  name = non_exonic_bed$name,
+  score = non_exonic_bed$score
+)
+
+cat("Created GRanges object with", length(non_exonic_gr), "non-exonic decoy ID regions\n")
+```
+
+```{r find-overlaps-non-exonic}
+# Find overlaps between non-exonic decoy IDs and exons
+# IMPORTANT: ignore.strand = TRUE means we do NOT match by strand
+overlaps_non_exonic <- findOverlaps(query = non_exonic_gr, 
+                                    subject = exon_gr,
+                                    ignore.strand = TRUE)
+
+cat("Found", length(overlaps_non_exonic), "overlapping pairs (strand-agnostic)\n")
+```
+
+```{r create-non-exonic-overlap-table}
+# Create a data frame with overlap information
+overlap_non_exonic_df <- data.frame(
+  decoy_name = non_exonic_gr[queryHits(overlaps_non_exonic)]$name,
+  decoy_chr = seqnames(non_exonic_gr[queryHits(overlaps_non_exonic)]),
+  decoy_start = start(non_exonic_gr[queryHits(overlaps_non_exonic)]),
+  decoy_end = end(non_exonic_gr[queryHits(overlaps_non_exonic)]),
+  decoy_strand = strand(non_exonic_gr[queryHits(overlaps_non_exonic)]),
+  decoy_score = non_exonic_gr[queryHits(overlaps_non_exonic)]$score,
+  exon_chr = seqnames(exon_gr[subjectHits(overlaps_non_exonic)]),
+  exon_start = start(exon_gr[subjectHits(overlaps_non_exonic)]),
+  exon_end = end(exon_gr[subjectHits(overlaps_non_exonic)]),
+  exon_strand = strand(exon_gr[subjectHits(overlaps_non_exonic)]),
+  gene_id = exon_gr[subjectHits(overlaps_non_exonic)]$gene_id,
+  gene_name = exon_gr[subjectHits(overlaps_non_exonic)]$gene_name,
+  transcript_id = exon_gr[subjectHits(overlaps_non_exonic)]$transcript_id,
+  exon_number = exon_gr[subjectHits(overlaps_non_exonic)]$exon_number,
+  stringsAsFactors = FALSE
+)
+
+# Calculate overlap length
+overlap_non_exonic_df$overlap_length <- pmin(overlap_non_exonic_df$decoy_end, overlap_non_exonic_df$exon_end) - 
+                                       pmax(overlap_non_exonic_df$decoy_start, overlap_non_exonic_df$exon_start) + 1
+
+# Add strand match indicator (for information, but overlaps were found without strand matching)
+overlap_non_exonic_df$strand_match <- overlap_non_exonic_df$decoy_strand == overlap_non_exonic_df$exon_strand
+
+cat("Created overlap table with", nrow(overlap_non_exonic_df), "rows\n")
+```
+
+```{r summary-non-exonic-statistics}
+# Summary statistics for non-exonic dataset overlaps
+cat("Non-Exonic Dataset Overlap Summary:\n")
+cat("  Total non-exonic decoy IDs:", length(non_exonic_gr), "\n")
+cat("  Total exons:", length(exon_gr), "\n")
+cat("  Non-exonic decoy IDs with exon overlaps:", length(unique(overlap_non_exonic_df$decoy_name)), "\n")
+cat("  Total overlap pairs:", nrow(overlap_non_exonic_df), "\n")
+cat("  Mean overlap length:", round(mean(overlap_non_exonic_df$overlap_length), 2), "bp\n")
+cat("  Median overlap length:", round(median(overlap_non_exonic_df$overlap_length), 2), "bp\n")
+cat("\nStrand information (for reference, overlaps found without strand matching):\n")
+cat("  Same strand:", sum(overlap_non_exonic_df$strand_match), "\n")
+cat("  Opposite strand:", sum(!overlap_non_exonic_df$strand_match), "\n")
+```
+
+```{r view-non-exonic-overlaps}
+# View first few overlaps
+head(overlap_non_exonic_df, n = 20)
+```
+
+```{r save-non-exonic-results}
+# Save results to file
+write.table(overlap_non_exonic_df, 
+            file = "decoy_exon_overlaps_unstranded.tsv",
+            sep = "\t",
+            quote = FALSE,
+            row.names = FALSE)
+
+cat("Results saved to decoy_exon_overlaps_unstranded.tsv\n")
+```
+
+# Protein Coding Region Overlap Analysis
+
+This section filters `SpliceAI_MAF_non_exonic_no_unstranded_overlaps.tsv` to keep only loci that overlap with protein coding regions.
+
+```{r load-non-exonic-no-unstranded-spliceai}
+# Load SpliceAI_MAF_non_exonic_no_unstranded_overlaps.tsv
+spliceai_no_unstranded <- read.table("SpliceAI_MAF_non_exonic_no_unstranded_overlaps.tsv",
+                                     sep = "\t",
+                                     header = TRUE,
+                                     stringsAsFactors = FALSE)
+
+# Extract decoyIDs
+no_unstranded_decoy_ids <- unique(spliceai_no_unstranded$decoyID)
+
+cat("Loaded", nrow(spliceai_no_unstranded), "rows from SpliceAI_MAF_non_exonic_no_unstranded_overlaps.tsv\n")
+cat("Unique decoy IDs:", length(no_unstranded_decoy_ids), "\n")
+```
+
+```{r match-no-unstranded-to-bed}
+# Match no unstranded decoyIDs to BED coordinates
+# Use the decoy_bed data frame loaded earlier
+no_unstranded_bed <- decoy_bed[decoy_bed$name %in% no_unstranded_decoy_ids, ]
+
+cat("Matched", nrow(no_unstranded_bed), "decoy IDs to BED coordinates\n")
+cat("Unmatched decoy IDs:", length(no_unstranded_decoy_ids) - nrow(no_unstranded_bed), "\n")
+```
+
+```{r create-no-unstranded-granges}
+# Create GRanges object for no unstranded decoy IDs
+# Convert to 1-based coordinates (BED is 0-based, GenomicRanges uses 1-based)
+no_unstranded_gr <- GRanges(
+  seqnames = no_unstranded_bed$chr,
+  ranges = IRanges(start = no_unstranded_bed$start + 1, end = no_unstranded_bed$end),
+  strand = no_unstranded_bed$strand,
+  name = no_unstranded_bed$name,
+  score = no_unstranded_bed$score
+)
+
+cat("Created GRanges object with", length(no_unstranded_gr), "no unstranded decoy ID regions\n")
+```
+
+```{r filter-protein-coding-regions}
+# Filter GTF for protein coding regions
+# We'll use gene features with gene_type == "protein_coding"
+# Note: gtf was already loaded earlier, but we'll filter it here for clarity
+protein_coding_genes <- gtf[gtf$type == "gene" & gtf$gene_type == "protein_coding"]
+
+cat("Found", length(protein_coding_genes), "protein coding genes\n")
+
+# Also get all features (exons, transcripts, etc.) from protein coding genes
+# Get unique gene IDs from protein coding genes
+protein_coding_gene_ids <- unique(protein_coding_genes$gene_id)
+
+# Filter all GTF features for protein coding genes
+protein_coding_features <- gtf[gtf$gene_id %in% protein_coding_gene_ids]
+
+cat("Found", length(protein_coding_features), "features from protein coding genes\n")
+cat("  Genes:", sum(protein_coding_features$type == "gene"), "\n")
+cat("  Transcripts:", sum(protein_coding_features$type == "transcript"), "\n")
+cat("  Exons:", sum(protein_coding_features$type == "exon"), "\n")
+```
+
+```{r find-overlaps-protein-coding}
+# Find overlaps between no unstranded decoy IDs and protein coding regions
+# Use ignore.strand = TRUE to find overlaps regardless of strand
+overlaps_protein_coding <- findOverlaps(query = no_unstranded_gr, 
+                                        subject = protein_coding_features,
+                                        ignore.strand = FALSE)
+
+cat("Found", length(overlaps_protein_coding), "overlapping pairs with protein coding regions\n")
+```
+
+```{r create-protein-coding-overlap-table}
+# Create a data frame with overlap information
+overlap_protein_coding_df <- data.frame(
+  decoy_name = no_unstranded_gr[queryHits(overlaps_protein_coding)]$name,
+  decoy_chr = seqnames(no_unstranded_gr[queryHits(overlaps_protein_coding)]),
+  decoy_start = start(no_unstranded_gr[queryHits(overlaps_protein_coding)]),
+  decoy_end = end(no_unstranded_gr[queryHits(overlaps_protein_coding)]),
+  decoy_strand = strand(no_unstranded_gr[queryHits(overlaps_protein_coding)]),
+  feature_type = protein_coding_features[subjectHits(overlaps_protein_coding)]$type,
+  feature_chr = seqnames(protein_coding_features[subjectHits(overlaps_protein_coding)]),
+  feature_start = start(protein_coding_features[subjectHits(overlaps_protein_coding)]),
+  feature_end = end(protein_coding_features[subjectHits(overlaps_protein_coding)]),
+  feature_strand = strand(protein_coding_features[subjectHits(overlaps_protein_coding)]),
+  gene_id = protein_coding_features[subjectHits(overlaps_protein_coding)]$gene_id,
+  gene_name = protein_coding_features[subjectHits(overlaps_protein_coding)]$gene_name,
+  gene_type = protein_coding_features[subjectHits(overlaps_protein_coding)]$gene_type,
+  stringsAsFactors = FALSE
+)
+
+# Calculate overlap length
+overlap_protein_coding_df$overlap_length <- pmin(overlap_protein_coding_df$decoy_end, overlap_protein_coding_df$feature_end) - 
+                                           pmax(overlap_protein_coding_df$decoy_start, overlap_protein_coding_df$feature_start) + 1
+
+cat("Created overlap table with", nrow(overlap_protein_coding_df), "rows\n")
+```
+
+```{r summary-protein-coding-statistics}
+# Summary statistics for protein coding overlaps
+cat("Protein Coding Region Overlap Summary:\n")
+cat("  Total no unstranded decoy IDs:", length(no_unstranded_gr), "\n")
+cat("  Total protein coding features:", length(protein_coding_features), "\n")
+cat("  Decoy IDs overlapping protein coding regions:", length(unique(overlap_protein_coding_df$decoy_name)), "\n")
+cat("  Total overlap pairs:", nrow(overlap_protein_coding_df), "\n")
+cat("  Mean overlap length:", round(mean(overlap_protein_coding_df$overlap_length), 2), "bp\n")
+cat("  Median overlap length:", round(median(overlap_protein_coding_df$overlap_length), 2), "bp\n")
+cat("\nOverlaps by feature type:\n")
+print(table(overlap_protein_coding_df$feature_type))
+```
+
+```{r filter-spliceai-protein-coding}
+# Get unique decoy IDs that overlap with protein coding regions
+protein_coding_decoy_ids <- unique(overlap_protein_coding_df$decoy_name)
+
+cat("Filtering SpliceAI data to keep only protein coding overlapping loci...\n")
+cat("  Decoy IDs overlapping protein coding:", length(protein_coding_decoy_ids), "\n")
+cat("  Original decoy IDs:", nrow(spliceai_no_unstranded), "\n")
+
+# Filter the SpliceAI data to keep only overlapping decoy IDs
+spliceai_protein_coding <- spliceai_no_unstranded[spliceai_no_unstranded$decoyID %in% protein_coding_decoy_ids, ]
+
+cat("  Filtered decoy IDs:", nrow(spliceai_protein_coding), "\n")
+cat("  Removed:", nrow(spliceai_no_unstranded) - nrow(spliceai_protein_coding), "\n")
+```
+
+```{r view-protein-coding-overlaps}
+# View first few overlaps
+head(overlap_protein_coding_df, n = 20)
+```
+
+```{r save-protein-coding-results}
+# Save filtered SpliceAI data
+write.table(spliceai_protein_coding, 
+            file = "SpliceAI_MAF_protein_coding.tsv",
+            sep = "\t",
+            quote = FALSE,
+            row.names = FALSE)
+
+cat("Filtered SpliceAI data saved to SpliceAI_MAF_non_exonic_no_unstranded_overlaps_protein_coding.tsv\n")
+cat("  Rows saved:", nrow(spliceai_protein_coding), "\n")
+
+# Also save overlap details
+write.table(overlap_protein_coding_df, 
+            file = "decoy_protein_coding_overlaps.tsv",
+            sep = "\t",
+            quote = FALSE,
+            row.names = FALSE)
+
+cat("Overlap details saved to decoy_protein_coding_overlaps.tsv\n")
+```

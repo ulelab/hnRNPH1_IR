@@ -177,41 +177,140 @@ cat("  Total parsed rows saved:", nrow(hnrnph1_all), "\n")
 cat("  Species with max2 and pos2:", nrow(hnrnph1_data_max2), "\n")
 cat("  Output TSV: ", file.path(base_path, "data", "Decoys", "hnrnph1_spliceaispecies.tsv"), "\n", sep = "")
 
+# --- Collapse the source clades into the four plotted groups --------------------
+# The mapping file's clade column splits mammals across five labels. For this
+# figure all mammals are shown together, split only by placental status:
+#   Placental (Eutheria) = Afrotheria + Euarchontoglires + Laurasiatheria +
+#                          Primate, plus dasNov3 (Armadillo). NB: Armadillo sits
+#                          in the catch-all "Mammal" clade but is a xenarthran,
+#                          i.e. placental - it must not fall in with the pouched
+#                          mammals below.
+#   Other mammals        = the marsupials and the monotreme (Opossum, Tasmanian
+#                          devil, Wallaby, Platypus).
+# Sarcopterygii (alligator, turtles, lizard, coelacanth, X. tropicalis) is
+# dropped from this figure entirely. Aves and Fish are retained as-is.
+PLACENTAL_CLADES <- c("Afrotheria", "Euarchontoglires", "Laurasiatheria", "Primate")
+PLACENTAL_EXTRA <- c("dasNov3") # Armadillo (Xenarthra)
+
+hnrnph1_data_max2 <- hnrnph1_data_max2 %>%
+  mutate(
+    group = case_when(
+      clade %in% PLACENTAL_CLADES | species %in% PLACENTAL_EXTRA ~ "Placental mammals",
+      clade == "Mammal" ~ "Other mammals",
+      clade == "Aves" ~ "Aves",
+      clade == "Fish" ~ "Fish",
+      TRUE ~ NA_character_ # Sarcopterygii -> dropped
+    )
+  ) %>%
+  filter(!is.na(group)) %>%
+  mutate(group = factor(group,
+    levels = c("Placental mammals", "Other mammals", "Aves", "Fish")
+  ))
+
+cat("\nSpecies per plotted group (Sarcopterygii dropped):\n")
+print(table(hnrnph1_data_max2$group))
+
+# Only these species carry a text label; every other point is unlabelled.
+LABEL_SPECIES <- c(
+  "Cat", "Pig", "Human", "Rat", "Cow",
+  "Gorilla", "Chimp", "Baboon", "Mouse"
+)
+label_data <- hnrnph1_data_max2 %>% filter(common_name %in% LABEL_SPECIES)
+cat("  Labelled species found:", nrow(label_data), "of", length(LABEL_SPECIES), "\n")
+missing_labels <- setdiff(LABEL_SPECIES, label_data$common_name)
+if (length(missing_labels) > 0) {
+  cat(
+    "  WARNING - requested label absent from data:",
+    paste(missing_labels, collapse = ", "), "\n"
+  )
+}
+
+# Palette validated for colour-vision deficiency (OKLab dE, Machado 2009 sev 1.0,
+# all pairs). Placental/other mammals are deliberately adjacent hues (red/orange)
+# so the two read as one mammalian block. Two pairs sit in WARN bands - the orange
+# is below 3:1 against a white surface, and red-vs-green falls to dE 6.7 under
+# deuteranopia - so `group` is redundantly encoded by SHAPE as well as fill, and
+# every point carries a dark stroke. Do not drop the shape scale to "tidy up".
+GROUP_FILL <- c(
+  "Placental mammals" = "#A00F0F", # dark red
+  "Other mammals"     = "#E68A00", # dark orange
+  "Aves"              = "#2a78d6",
+  "Fish"              = "#008300"
+)
+GROUP_SHAPE <- c(
+  "Placental mammals" = 21, # circle
+  "Other mammals"     = 24, # triangle
+  "Aves"              = 22, # square
+  "Fish"              = 23  # diamond
+)
+
 if (nrow(hnrnph1_data_max2) > 0) {
-  # Create scatter plot with color by clade
-  p_hnrnph1_max2_pos2 <- ggplot(hnrnph1_data_max2, aes(x = pos2, y = max2, color = clade)) +
-    geom_point(alpha = 0.7, size = 2) +
-    # Add floating labels with common names
-    geom_text_repel(aes(label = common_name),
-      size = 3.5,
+  p_hnrnph1_max2_pos2 <- ggplot(
+    hnrnph1_data_max2,
+    aes(x = pos2, y = max2, fill = group, shape = group)
+  ) +
+    geom_point(size = 4, alpha = 0.9, colour = "grey20", stroke = 0.6) +
+    # The nine labelled species are redrawn larger with a black ring. In the
+    # dense mammalian column a leader line can otherwise pass close enough to a
+    # neighbouring point to be misread as pointing at it; this makes the label
+    # target unambiguous.
+    # show.legend = FALSE: this layer must not touch the legend keys, or the
+    # "Placental mammals" key inherits the black ring and reads as if the ring
+    # meant "placental" rather than "labelled".
+    geom_point(
+      data = label_data, size = 6, alpha = 1, colour = "black",
+      stroke = 1.2, show.legend = FALSE
+    ) +
+    # Labels for the nine focus species only
+    geom_text_repel(
+      data = label_data,
+      aes(label = common_name),
+      size = 6,
+      fontface = "bold",
+      colour = "grey10",
       min.segment.length = 0,
-      segment.size = 0.3,
-      segment.color = "gray50",
-      box.padding = 0.5,
-      point.padding = 0.3,
+      segment.size = 0.4,
+      segment.color = "grey40",
+      box.padding = 0.9,
+      point.padding = 0.5,
       max.overlaps = Inf,
       show.legend = FALSE
     ) +
-    scale_color_brewer(palette = "Dark2", name = "Clade") +
+    scale_fill_manual(values = GROUP_FILL, name = NULL, drop = FALSE) +
+    scale_shape_manual(values = GROUP_SHAPE, name = NULL, drop = FALSE) +
+    # fill and shape map to the same variable, so ggplot merges them into a
+    # single legend; set override.aes on one guide only or it warns.
+    guides(fill = guide_legend(override.aes = list(size = 6))) +
     labs(
-      title = "HNRNPH1_179620582 Cryptic Element Conservation Shows Positional Shift",
-      subtitle = "SpliceAI donor scores calculated across whole intron multiple alignment file for maximum position as proposed regulatory element",
+      title = "HNRNPH1_179620582 Decoy Element Retains Locus Position Across Species",
+      subtitle = "SpliceAI donor scores calculated across whole intron multiple alignment file for maximum position",
       x = "Loci distance from canonical 5' splice site (nt)",
       y = "Consensus Sequence Strength (SpliceAI Donor Score)"
     ) +
-    theme_minimal() +
+    theme_minimal(base_size = 18) +
     theme(
-      plot.title = element_text(size = 14, face = "bold"),
-      plot.subtitle = element_text(size = 12),
+      plot.title = element_text(size = 22, face = "bold"),
+      plot.subtitle = element_text(size = 15, colour = "grey30"),
+      axis.title = element_text(size = 18),
+      axis.text = element_text(size = 16, colour = "grey20"),
       legend.position = "right",
+      legend.text = element_text(size = 16),
+      legend.key.height = grid::unit(1.4, "lines"),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(colour = "grey90", linewidth = 0.4),
       axis.line.x = element_line(colour = "black", linewidth = 0.5),
       axis.line.y = element_line(colour = "black", linewidth = 0.5)
     )
 
   print(p_hnrnph1_max2_pos2)
-  pdf(file.path(base_path, "results", "hnrnph1_max2_pos2_scatterplot.pdf"), width = 14, height = 10)
+  pdf(file.path(base_path, "results", "hnrnph1_max2_pos2_scatterplot.pdf"), width = 16, height = 11)
   print(p_hnrnph1_max2_pos2)
   dev.off()
+  ggsave(
+    file.path(base_path, "figures", "hnrnph1_max2_pos2_scatterplot.png"),
+    p_hnrnph1_max2_pos2,
+    width = 16, height = 11, dpi = 300, bg = "white"
+  )
   cat("  Output PDF: ", file.path(base_path, "results", "hnrnph1_max2_pos2_scatterplot.pdf"), "\n", sep = "")
 
   # Print summary statistics

@@ -75,3 +75,47 @@ The final plot highlights the proposed decoy site (positions 27-33 in the proces
 
 - `data/hnRNPH1_intron4decoyMSA.processed.fa`
 
+
+## Cross-species SpliceAI scan across whole-intron MAF alignments
+
+#### This is the workflow behind `results/all_spliceai_scores_v3.1.tsv`, the table used for the HNRNPH1 positional-shift figure. It asks, for every decoy locus and every species in the UCSC 100-way alignment, where the strongest SpliceAI donor signal sits inside the intron relative to the canonical 5' splice site.
+
+#### **Full provenance, including which script version produced the table and the evidence for it, is in [`PROVENANCE.md`](PROVENANCE.md). Read that before citing this pipeline in a manuscript.**
+
+### Pipeline
+
+#### 1. `scripts/split_chromosomes.sh` splits the decoy BED into ~50-locus parts, producing the `chrparts.txt` manifest (109 parts).
+#### 2. `scripts/run_mafsInRegion_array.sbatch` (SLURM array 1-109) runs kent `mafsInRegion` to cut a per-locus MAF out of each chromosome's multiz alignment. `scripts/run_ctrl_mafsInRegion_array.sbatch` does the same for the matched control set.
+#### 3. `scripts/process_maf_spliceai_v2.5.py`, driven by `scripts/process_maf_spliceai_array.sbatch`, converts each MAF to FASTA with `msa_view` (`-V` to reverse-complement on the minus strand), then runs the 5-model SpliceAI ensemble over each species' ungapped sequence. For every species it records the canonical donor peak (`max1`/`pos1`) and the strongest downstream cryptic peak (`max2`/`pos2`), searching from `pos1 + 20` onward.
+#### 4. `scripts/combine_spliceai_tsv.py` concatenates the 109 per-part TSVs into the single wide table.
+
+### Output format
+
+#### One row per decoy locus, one column per species (100 species from `data/tree_to_clade_mapping.tsv`). Each cell is `[max1][pos1][max2][pos2][d]`:
+
+#### - `max1` / `pos1` - peak SpliceAI donor score in the canonical 5' splice-site search window, and its position in nt from the intron start
+#### - `max2` / `pos2` - peak donor score downstream of `pos1 + 20` (the proposed cryptic regulatory element), and its position
+#### - `d` - normalized intron-length divergence from hg38, `d = abs(n - v) / v`, where `v` is the hg38 ungapped intron length and `n` is this species'. This is a length ratio, **not** a phylogenetic distance; it is what widens the `max1` search window for species with longer introns.
+#### - `-1` in any field means the score could not be computed: species absent from the alignment block, empty or invalid MAF, or an all-gap sequence
+
+### The v3 re-scoring pass
+
+#### `scripts/process_maf_spliceai_v3.py` is a **later, separate** pass that takes an existing v3.1 TSV via `--v31_tsv`, re-extracts a local 50-nt window around each recorded `pos1`/`pos2`, and rewrites only `max1`/`max2` while copying `pos1`, `pos2` and `d` through unchanged. It did not produce `all_spliceai_scores_v3.1.tsv` - it consumes it. Its driver `scripts/process_maf_spliceai_array_v3.sbatch` still carries an unfilled `V31_TSV` placeholder and no output of this pass exists in the repository. It is kept for the record; see `PROVENANCE.md`.
+
+### Single-locus streaming
+
+#### `scripts/stream_maf_region.py` and `scripts/test_stream_maf_hnrnph1.sh` pull the alignment for one region without going through the full array, which is how the HNRNPH1 intron 4 locus was inspected interactively.
+
+## Positional-shift figure (`scripts/hnrnph1decoyposition.Rmd`)
+
+#### Reads `results/all_spliceai_scores_v3.1.tsv` and `data/tree_to_clade_mapping.tsv`, parses the bracketed cells, filters to `decoyID == "HNRNPH1_179620582"`, and plots `pos2` against `max2` for each species.
+
+#### Species are collapsed into four plotted groups: **placental mammals** (Afrotheria, Euarchontoglires, Laurasiatheria, Primate, plus Armadillo, which the mapping file files under the catch-all `Mammal` clade despite being a xenarthran), **other mammals** (opossum, Tasmanian devil, wallaby, platypus), **Aves**, and **Fish**. Sarcopterygii is dropped from this figure. Nine species are labelled: cat, pig, human, rat, cow, gorilla, chimp, baboon, mouse.
+
+#### Group is encoded redundantly by both fill colour and point shape. The palette was checked for colour-vision deficiency across all pairs (OKLab dE under Machado 2009 severity-1.0 simulation); the mammal red/orange pair and the red/green pair sit in warning bands, so the shape scale is load-bearing and must not be removed.
+
+### Outputs
+
+- `data/Decoys/hnrnph1_spliceaispecies.tsv`
+- `results/hnrnph1_max2_pos2_scatterplot.pdf`
+- `figures/hnrnph1_max2_pos2_scatterplot.png`
