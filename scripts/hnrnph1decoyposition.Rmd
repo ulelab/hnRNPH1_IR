@@ -41,6 +41,74 @@ cat("  Total rows:", nrow(spliceai_data), "\n")
 cat("  Total columns:", ncol(spliceai_data), "\n")
 ```
 
+## Restrict to the Recount-filtered decoy set
+
+```{r recount-filter}
+# The MSA/SpliceAI scan was run on DecoysInConservedGenes50thpercentile.bed, which
+# is NOT the same list as the protein-coding decoy set. Of the 4,886 decoyIDs in
+# the score table, 4,577 appear in Decoys_proteincoding_splicescores.bed and 309
+# do not - those 309 cannot be judged by the Recount filter at all, because they
+# were never in the set that was queried against Recount.
+#
+# DROP_UNASSESSED controls what happens to those 309:
+#   TRUE  - use the filtered BED strictly as a whitelist (keeps 4,306). This is
+#           the "the filtered BED is the input" reading.
+#   FALSE - remove only the decoys Recount positively flagged, and keep the
+#           unassessed ones (keeps 4,615).
+# Either way the 309 are reported below rather than disappearing silently.
+DROP_UNASSESSED <- TRUE
+
+filtered_bed_path <- file.path(
+  base_path, "data", "Decoys", "Decoys_proteincoding_recount_filtered.bed"
+)
+full_bed_path <- file.path(
+  base_path, "data", "Decoys", "Decoys_proteincoding_splicescores.bed"
+)
+
+if (!file.exists(filtered_bed_path)) {
+  stop(
+    "Recount-filtered BED not found: ", filtered_bed_path, "\n",
+    "  This file is generated, not checked in. Run:\n",
+    "    python3 scripts/filter_decoys_by_recount.py \\\n",
+    "      --loci-bed data/Decoys/Decoys_proteincoding_splicescores.bed \\\n",
+    "      --junctions results/tcgajunctions.tsv results/srajunctions.tsv results/gtexjunctions.tsv \\\n",
+    "      --out-bed data/Decoys/Decoys_proteincoding_recount_filtered.bed"
+  )
+}
+
+# decoyID key is <gene>_<bed_start>, matching filter_decoys_by_recount.py
+bed_keys <- function(path) {
+  b <- fread(path, sep = "\t", header = FALSE, select = 1:6,
+    col.names = c("chr", "start", "end", "gene", "score", "strand"))
+  paste0(b$gene, "_", b$start)
+}
+keep_ids <- bed_keys(filtered_bed_path)
+all_ids <- bed_keys(full_bed_path)
+
+n_before <- nrow(spliceai_data)
+in_full <- spliceai_data$decoyID %in% all_ids
+in_keep <- spliceai_data$decoyID %in% keep_ids
+n_flagged <- sum(in_full & !in_keep)
+n_unassessed <- sum(!in_full)
+
+spliceai_data <- if (DROP_UNASSESSED) {
+  spliceai_data[in_keep]
+} else {
+  spliceai_data[in_keep | !in_full]
+}
+
+cat("\nRecount filtering of the SpliceAI score table:\n")
+cat("  decoyIDs before          :", n_before, "\n")
+cat("  removed - Recount-annotated:", n_flagged, "\n")
+cat("  not in protein-coding BED :", n_unassessed,
+  if (DROP_UNASSESSED) "(dropped: DROP_UNASSESSED = TRUE)" else "(kept: DROP_UNASSESSED = FALSE)", "\n")
+cat("  decoyIDs after           :", nrow(spliceai_data), "\n")
+if (!"HNRNPH1_179620582" %in% spliceai_data$decoyID) {
+  stop("HNRNPH1_179620582 did not survive the Recount filter - the figure below would be empty.")
+}
+cat("  HNRNPH1_179620582 retained: yes\n")
+```
+
 ## Parse SpliceAI Data
 
 ```{r parse-spliceai}
@@ -303,7 +371,7 @@ if (nrow(hnrnph1_data_max2) > 0) {
     )
 
   print(p_hnrnph1_max2_pos2)
-  pdf(file.path(base_path, "results", "hnrnph1_max2_pos2_scatterplot.pdf"), width = 16, height = 11)
+  pdf(file.path(base_path, "figures", "hnrnph1_max2_pos2_scatterplot.pdf"), width = 16, height = 11)
   print(p_hnrnph1_max2_pos2)
   dev.off()
   ggsave(

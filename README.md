@@ -51,9 +51,29 @@
 #### strand + -> junction_type = 3ss
 #### strand - -> junction_type = 5ss
 
+### Filtering decoys to the Recount-unique set
+
+#### The three `*junctions.tsv` files above are the *matches* - decoy loci that coincide (within `--flank-bp`, default 5) with an **annotated** junction boundary in Recount. A predicted cryptic site that already appears as an annotated junction is a known, used splice site, not a decoy, so these are removed to leave the final unique set.
+
+#### `scripts/filter_decoys_by_recount.py` performs this subtraction. A locus is keyed as `<gene>_<bed_start>` (matching the `locus_id` column) and is dropped if it appears in **any** of the three databases.
+
+#### `$ python3 scripts/filter_decoys_by_recount.py --loci-bed data/Decoys/Decoys_proteincoding_splicescores.bed --junctions results/tcgajunctions.tsv results/srajunctions.tsv results/gtexjunctions.tsv --out-bed data/Decoys/Decoys_proteincoding_recount_filtered.bed --out-removed results/decoys_removed_by_recount.tsv`
+
+#### Result: **15,172 input loci -> 1,259 removed -> 13,913 retained** as `data/Decoys/Decoys_proteincoding_recount_filtered.bed`. The removed loci, with the databases that supported each, are listed in `results/decoys_removed_by_recount.tsv`.
+
+#### The script aborts if any locus in a junction TSV is absent from the BED or has mismatched coordinates, so a stale junction file cannot silently produce a wrong filter (override with `--no-strict`).
+
+#### **Note: this step is not yet drawn in `figures/decoy_splice_site_flowchart.pdf`, which currently terminates at the 15,172-site box.** The flowchart needs a final node: *"Remove loci matching annotated Recount junctions (TCGA/SRA/GTEx, +/-5 bp) -> 13,913 Predicted Cryptic Splice Sites"*.
+
+#### QC of the subtraction:
+#### - 1,230 of the 1,259 removed loci (97.7%) were found in all three databases, 23 in two, 6 in one - the overlap is highly consistent, as expected for genuinely annotated junctions.
+#### - Removed loci carry a modestly higher SpliceAI score than retained ones (median 0.101 vs 0.072), consistent with them being real splice sites, though the separation is not large.
+#### - Removals occur on all 24 chromosomes at broadly similar rates (4-14%), confirming the query results are genome-wide and not truncated.
+#### - `HNRNPH1_179620582`, the locus used for the conservation figure, is retained.
+
 ## Decoy Feature Table Generation
 
-#### The database of decoys in 'protein-coding' introns is uploaded as `Decoys_proteincoding_splicescores.bed` in the `compile_decoy_intron_data.Rmd` to integrate intron retention quantification data from `PSI-TABLE-hg38.tab.gz`. The Rmd file uses Genomic Ranges to integrate intron coordinates, unique identifiers `EVENT` and intron retention PSI values in 145 cell and tissue types with SpliceAI inference. Decoy distance from canonical splice site is calculated with strandwise logic. After overlapping the decoy database with introns, MaxEntScan is used to calculate the strength of decoy predicted splice sites and the canonical 5' splice site for the intron harboring the decoy with the scripts `run_maxentscan_decoy.sh` `run_maxentscan_canonical.sh`.Average phastCons 100-way and 470-way scoring across the intron harboring the decoy is calculated with `extract_phastcons_scores.sh`. Part 2 of the R markdown file reloads the results from MaxEntScan and phastCons and merges into the final feature table.
+#### The database of decoys in 'protein-coding' introns is uploaded as `Decoys_proteincoding_recount_filtered.bed` (the Recount-filtered 13,913-locus set; set `splicescores_bed` back to `Decoys_proteincoding_splicescores.bed` in the `paths-v3` chunk to use the unfiltered 15,172) in the `compile_decoy_intron_data.Rmd` to integrate intron retention quantification data from `PSI-TABLE-hg38.tab.gz`. The Rmd file uses Genomic Ranges to integrate intron coordinates, unique identifiers `EVENT` and intron retention PSI values in 145 cell and tissue types with SpliceAI inference. Decoy distance from canonical splice site is calculated with strandwise logic. After overlapping the decoy database with introns, MaxEntScan is used to calculate the strength of decoy predicted splice sites and the canonical 5' splice site for the intron harboring the decoy with the scripts `run_maxentscan_decoy.sh` `run_maxentscan_canonical.sh`.Average phastCons 100-way and 470-way scoring across the intron harboring the decoy is calculated with `extract_phastcons_scores.sh`. Part 2 of the R markdown file reloads the results from MaxEntScan and phastCons and merges into the final feature table.
 
 ##### Ten predicted decoys are dropped in feature table generation. Dropped decoyIDs:
 ##### "TNNI2_1839212" "SLC7A6_68264187" "OAZ1_2270281" "ITPA_3221726" "ARHGAP40_38626901" "DHX35_38962112"        
@@ -114,8 +134,20 @@ The final plot highlights the proposed decoy site (positions 27-33 in the proces
 
 #### Group is encoded redundantly by both fill colour and point shape. The palette was checked for colour-vision deficiency across all pairs (OKLab dE under Machado 2009 severity-1.0 simulation); the mammal red/orange pair and the red/green pair sit in warning bands, so the shape scale is load-bearing and must not be removed.
 
+
+### Recount filtering applied upstream of the figure
+
+#### The `recount-filter` chunk restricts the score table to the Recount-filtered decoy set before parsing. Of the 4,886 decoyIDs in `all_spliceai_scores_v3.1.tsv`, 271 match an annotated Recount junction and are removed.
+
+#### A further 309 decoyIDs are **not present in `Decoys_proteincoding_splicescores.bed` at all** - the MSA/SpliceAI scan was run on `DecoysInConservedGenes50thpercentile.bed`, a different decoy list, so these were never queried against Recount and cannot be judged by this filter. The `DROP_UNASSESSED` flag at the top of the chunk decides their fate:
+
+#### - `TRUE` (default) - treat the filtered BED strictly as a whitelist, leaving **4,306** decoyIDs
+#### - `FALSE` - remove only the 271 Recount-flagged decoys and keep the 309 unassessed ones, leaving **4,615**
+
+#### Both counts are printed when the chunk runs, so the 309 are never dropped silently. The chunk aborts if `HNRNPH1_179620582` does not survive, since the figure would otherwise be empty.
+
 ### Outputs
 
 - `data/Decoys/hnrnph1_spliceaispecies.tsv`
-- `results/hnrnph1_max2_pos2_scatterplot.pdf`
+- `figures/hnrnph1_max2_pos2_scatterplot.pdf`
 - `figures/hnrnph1_max2_pos2_scatterplot.png`
