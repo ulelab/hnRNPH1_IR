@@ -1,0 +1,31 @@
+Clippy (chunked) on data/CLIP/PRPF8_merged.xl.bed
+  chromosomes: 25   params: -n 40 -x 5.0 -mx 8.0 -w 0.5 -mg 5 -t 2
+
+  chr1     1584514 crosslinks ... 17640 peaks
+  chr10     560779 crosslinks ... 7389 peaks
+  chr11     886085 crosslinks ... 8068 peaks
+  chr12     795029 crosslinks ... 8862 peaks
+  chr13     244997 crosslinks ... 3530 peaks
+  chr14     452318 crosslinks ... 5402 peaks
+  chr15     451871 crosslinks ... 6576 peaks
+  chr16     905947 crosslinks ... 7891 peaks
+  chr17    1071075 crosslinks ... 9868 peaks
+  chr18     202988 crosslinks ... 2793 peaks
+  chr19    1081662 crosslinks ... 8085 peaks
+  chr2     1178427 crosslinks ... 14416 peaks
+  chr20     561335 crosslinks ... 4726 peaks
+  chr21     208126 crosslinks ... 2104 peaks
+  chr22     467085 crosslinks ... 4388 peaks
+  chr3      884380 crosslinks ... 10362 peaks
+  chr4      505066 crosslinks ... 6508 peaks
+  chr5      649521 crosslinks ... 7888 peaks
+  chr6      844553 crosslinks ... 9284 peaks
+  chr7      849584 crosslinks ... 9583 peaks
+  chr8      530294 crosslinks ... 6230 peaks
+  chr9      671011 crosslinks ... 7216 peaks
+  chrM       12770 crosslinks ... FAILED (rc=0) - see data/CLIP/_clippy_chunks/PRPF8_clippy_n40_w0.5_mx8/chrM.log
+  chrX      444344 crosslinks ... 4931 peaks
+  chrY        9223 crosslinks ... 132 peaks
+
+      173872  data/CLIP/PRPF8_clippy_n40_w0.5_mx8_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Peaks.bed
+     1110511  data/CLIP/PRPF8_clippy_n40_w0.5_mx8_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Summits.bed

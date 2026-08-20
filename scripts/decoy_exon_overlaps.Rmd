@@ -19,16 +19,36 @@ library(rtracklayer)
 ```
 
 ```{r load-data}
-# Load DecoySpliceSites_f50.bed file
-# BED format: chr, start, end, name, score, strand, counts
-decoy_bed <- read.table("../data/DecoySpliceSites_f50.bed",
+# Input: non-canonical predicted splice sites - the union of SpliceAI inferences
+# (>= 0.05) supported by RBPnet, PRPF8 CLIP or SmB CLIP peaks with NO distance
+# window, after removing sites overlapping Wide_Canonical_splice_sites.bed.
+# Produced by scripts/intersect_spliceai_support.sh; see the README section
+# "Cross-CLIP support intersect".
+#
+# 10-column BED: chr, start, end, name, score, strand, then one crosslink/peak
+# count per support category and the number of categories supporting the site.
+splice_sites_bed <- "../results/noncanonical_predicted_splice_sites.bed"
+if (!file.exists(splice_sites_bed)) {
+    stop(
+        "Input not found: ", splice_sites_bed, "\n",
+        "  Generate it with scripts/intersect_spliceai_support.sh followed by\n",
+        "  bedtools intersect -v -s against data/Decoys/Wide_Canonical_splice_sites.bed"
+    )
+}
+
+decoy_bed <- read.table(splice_sites_bed,
     sep = "\t",
     header = FALSE,
     stringsAsFactors = FALSE
 )
 
-# Set column names for BED file
-colnames(decoy_bed) <- c("chr", "start", "end", "name", "score", "strand", "counts")
+colnames(decoy_bed) <- c(
+    "chr", "start", "end", "name", "score", "strand",
+    "rbpnet", "prpf8", "smb", "n_categories"
+)
+
+cat("Support categories per site:\n")
+print(table(decoy_bed$n_categories))
 
 # Convert to 1-based coordinates
 decoy_gr <- GRanges(
@@ -182,15 +202,25 @@ cat("Final rows after deduplication:", after_dedup, "\n")
 ```
 
 ```{r save-protein-coding-results}
-# Save filtered BED rows
+# Output: exon-overlap-free, protein-coding-intron predicted splice sites.
+# Still 10 columns (BED6 + rbpnet/prpf8/smb counts + n_categories).
+# Next step is re-scoring with scripts/SpliceAI_Inference.py to obtain the
+# LOCAL SpliceAI donor score in a 49 nt window around each site; that rescored
+# file is then filtered at >= 0.1 in compile_decoy_intron_data.Rmd.
+out_bed <- "../data/Decoys/noncanonical_proteincoding.bed"
+dir.create(dirname(out_bed), showWarnings = FALSE, recursive = TRUE)
+
 write.table(decoy_protein_coding_bed,
-    file = "../data/DecoySpliceSites_proteincoding.bed",
+    file = out_bed,
     sep = "\t",
     quote = FALSE,
     row.names = FALSE,
-    col.names = FALSE
+    col.names = FALSE,
+    # Force LF endings. A CRLF file breaks bedtools/SpliceAI_Inference.py
+    # downstream: the trailing \r rides along on the last column.
+    eol = "\n"
 )
 
-cat("Filtered BED saved to ../data/DecoySpliceSites_proteincoding.bed\n")
+cat("Filtered BED saved to", out_bed, "\n")
 cat("  Rows saved:", nrow(decoy_protein_coding_bed), "\n")
 ```

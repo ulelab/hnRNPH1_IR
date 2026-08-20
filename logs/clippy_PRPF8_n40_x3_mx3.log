@@ -1,0 +1,31 @@
+Clippy (chunked) on data/CLIP/PRPF8_merged.xl.bed
+  chromosomes: 25   params: -n 40 -x 3.0 -mx 3.0 -w 0.5 -mg 5 -t 2
+
+  chr1     1584514 crosslinks ... 33227 peaks
+  chr10     560779 crosslinks ... 12488 peaks
+  chr11     886085 crosslinks ... 16111 peaks
+  chr12     795029 crosslinks ... 16432 peaks
+  chr13     244997 crosslinks ... 5497 peaks
+  chr14     452318 crosslinks ... 9323 peaks
+  chr15     451871 crosslinks ... 10991 peaks
+  chr16     905947 crosslinks ... 16539 peaks
+  chr17    1071075 crosslinks ... 19920 peaks
+  chr18     202988 crosslinks ... 4818 peaks
+  chr19    1081662 crosslinks ... 18119 peaks
+  chr2     1178427 crosslinks ... 25219 peaks
+  chr20     561335 crosslinks ... 9798 peaks
+  chr21     208126 crosslinks ... 4071 peaks
+  chr22     467085 crosslinks ... 8856 peaks
+  chr3      884380 crosslinks ... 18307 peaks
+  chr4      505066 crosslinks ... 11081 peaks
+  chr5      649521 crosslinks ... 14216 peaks
+  chr6      844553 crosslinks ... 16404 peaks
+  chr7      849584 crosslinks ... 17302 peaks
+  chr8      530294 crosslinks ... 10648 peaks
+  chr9      671011 crosslinks ... 13314 peaks
+  chrM       12770 crosslinks ... 12 peaks
+  chrX      444344 crosslinks ... 8564 peaks
+  chrY        9223 crosslinks ... 181 peaks
+
+      321438  data/CLIP/PRPF8_clippy_n40_w0.5_x3_mx3_rollmean40_minHeightAdjust3.0_minPromAdjust3.0_minGeneCount5_Peaks.bed
+     2372251  data/CLIP/PRPF8_clippy_n40_w0.5_x3_mx3_rollmean40_minHeightAdjust3.0_minPromAdjust3.0_minGeneCount5_Summits.bed

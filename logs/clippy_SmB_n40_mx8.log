@@ -1,0 +1,31 @@
+Clippy (chunked) on data/CLIP/SmB_merged.xl.bed
+  chromosomes: 25   params: -n 40 -x 5.0 -mx 8.0 -w 0.5 -mg 5 -t 2
+
+  chr1     1264652 crosslinks ... 15378 peaks
+  chr10     556912 crosslinks ... 6951 peaks
+  chr11     570737 crosslinks ... 6575 peaks
+  chr12     645625 crosslinks ... 7690 peaks
+  chr13     267018 crosslinks ... 3471 peaks
+  chr14     391351 crosslinks ... 4866 peaks
+  chr15     414014 crosslinks ... 5866 peaks
+  chr16     482927 crosslinks ... 5798 peaks
+  chr17     663283 crosslinks ... 7367 peaks
+  chr18     249725 crosslinks ... 2966 peaks
+  chr19     484990 crosslinks ... 4687 peaks
+  chr2     1094779 crosslinks ... 13447 peaks
+  chr20     333441 crosslinks ... 3687 peaks
+  chr21     167463 crosslinks ... 2170 peaks
+  chr22     275117 crosslinks ... 3029 peaks
+  chr3      788781 crosslinks ... 9167 peaks
+  chr4      525730 crosslinks ... 6547 peaks
+  chr5      688627 crosslinks ... 8099 peaks
+  chr6      844373 crosslinks ... 9782 peaks
+  chr7      717142 crosslinks ... 8815 peaks
+  chr8      452625 crosslinks ... 5919 peaks
+  chr9      525322 crosslinks ... 6277 peaks
+  chrM       14215 crosslinks ... FAILED (rc=0) - see data/CLIP/_clippy_chunks/SmB_clippy_n40_w0.5_mx8/chrM.log
+  chrX      430846 crosslinks ... 4369 peaks
+  chrY        5668 crosslinks ... 60 peaks
+
+      152983  data/CLIP/SmB_clippy_n40_w0.5_mx8_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Peaks.bed
+     1290916  data/CLIP/SmB_clippy_n40_w0.5_mx8_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Summits.bed
