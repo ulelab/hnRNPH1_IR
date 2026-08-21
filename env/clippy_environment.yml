@@ -1,0 +1,52 @@
+# Conda environment for running Clippy 1.5.0 natively (no container).
+#
+# Every version here is pinned deliberately and verified working on
+# 2026-08-20. Clippy 1.5.0 predates NumPy 2, pandas 2, plotly 6 and modern
+# bedtools; an unpinned solve installs all four and Clippy breaks in ways that
+# are hard to attribute:
+#
+#   numpy >= 2      -> numexpr/pandas ABI error on import
+#   pandas >= 2     -> peak-calling internals change behaviour
+#   bedtools > 2.26 -> "bedtools merge ... -c 11,6 ... only has fields 1 - 0";
+#                      the broad-peak merge receives an empty file and dies.
+#                      This one persists even with the Python stack pinned.
+#   plotly >= 6     -> interactive mode (-int) renders the height-threshold
+#                      trace as y = position instead of a horizontal line;
+#                      dash 1.20.0 (2021) predates plotly 6 entirely.
+#
+# Setup:
+#   conda env create -f env/clippy_environment.yml     # or: mamba env create -f ...
+#   conda activate clippy15
+#   pip install -e /path/to/clippy --no-deps           # ulelab/clippy checkout
+#   clippy --version                                   # -> 1.5.0
+#
+# --no-deps is required: pip would otherwise pull unpinned versions of the
+# packages above and undo the environment.
+#
+# Interactive mode note: Clippy hardcodes host="127.0.0.1", which is unreachable
+# from a Windows browser under WSL2. See the README for the one-line patch that
+# makes the host/port configurable.
+
+name: clippy15
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.9
+  # --- core numerical stack (must stay on the 1.x line) ---
+  - numpy=1.20.3
+  - pandas=1.4.4
+  - scipy=1.8.1
+  - matplotlib-base=3.7.1
+  # --- interval handling; bedtools pin is the critical one ---
+  - pybedtools=0.9.0
+  - bedtools=2.26.0
+  # --- interactive mode (clippy -int) ---
+  - plotly=5.8.2
+  - dash=1.20.0
+  - dash-bootstrap-components=0.11.3
+  - flask=2.1.2
+  - werkzeug=2.0.0
+  # setuptools <60 keeps `pip install -e` on the legacy path clippy's setup.py expects
+  - setuptools=59.8.0

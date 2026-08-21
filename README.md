@@ -73,6 +73,33 @@
 #### - Removals occur on all 24 chromosomes at broadly similar rates (4-14%), confirming the query results are genome-wide and not truncated.
 #### - `HNRNPH1_179620582`, the locus used for the conservation figure, is retained.
 
+## Running Clippy without a container
+
+#### `env/clippy_environment.yml` builds a conda environment that runs Clippy 1.5.0 natively. Every version in it is pinned deliberately - Clippy 1.5.0 predates NumPy 2, pandas 2, plotly 6 and modern bedtools, and an unpinned solve installs all four.
+
+#### `$ conda env create -f env/clippy_environment.yml`
+#### `$ conda activate clippy15`
+#### `$ pip install -e /path/to/ulelab/clippy --no-deps`
+
+#### `--no-deps` is required; without it pip re-resolves the dependencies and undoes the pinning.
+
+#### The four failure modes the pins prevent, all of which were hit while building this analysis:
+
+| Package | Unpinned result | Symptom |
+|---|---|---|
+| numpy | >= 2.x | numexpr/pandas ABI error on `import clip` |
+| pandas | >= 2.x | peak-calling internals change behaviour |
+| **bedtools** | > 2.26 | `bedtools merge ... -c 11,6 ... only has fields 1 - 0` - the broad-peak merge gets an empty file. **Persists even with the Python stack pinned; this was the hardest one to find.** |
+| plotly | >= 6.x | interactive mode draws the height threshold as `y = position` instead of a horizontal line |
+
+#### The upstream `environment.yml` shipped with Clippy pins only `bedtools`, `dash`, `dash-bootstrap-components` and `werkzeug`; it leaves numpy, pandas, scipy and pybedtools unbounded and omits plotly entirely, so it no longer produces a working environment.
+
+#### **Interactive mode under WSL2:** Clippy hardcodes `host="127.0.0.1"` in `clip/interaction.py`, which binds only inside the WSL VM and is unreachable from a Windows browser. Changing that call to read host/port from the environment (defaulting to `0.0.0.0`) makes `clippy ... -int` reachable at `http://localhost:8050`. Running with `debug=True` also starts Flask's reloader as a second process, which re-binds the port and produces `OSError: [Errno 98] Address already in use`.
+
+## Line endings
+
+#### `.gitattributes` forces LF on all text files. Knitting the Rmds from **RStudio on Windows against the WSL filesystem** writes CRLF, because Windows R uses `\r\n` for both `write.table` and `data.table::fwrite`. This does not raise an error - the trailing `\r` attaches to the **last column**, so `n_categories` becomes `"1\r"` and every numeric test on it silently fails. `scripts/decoy_exon_overlaps.Rmd` also sets `eol = "\n"` explicitly on its BED output.
+
 ## v2 dataset: merged CLIP tracks, Clippy peak calling, and the cross-CLIP intersect
 
 #### This supersedes the original single-track workflow above. The `-b` side of the intersect is now three peak sets rather than a mix of peaks and raw crosslinks, and the CLIP data is merged across samples pulled from Flow.
