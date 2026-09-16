@@ -1,5 +1,5 @@
 ---
-title: "phyloP and SpliceAI Analysis v3"
+title: "HNRNPH1 decoy element: cross-species SpliceAI position and Recount junction usage"
 author: "Analysis"
 date: "`r Sys.Date()`"
 output:
@@ -24,226 +24,170 @@ library(stringr)
 library(ggrepel)
 ```
 
-## Load Data
+This document makes two plots for the HNRNPH1 decoy element at
+**chr5:179,620,582** (minus strand):
 
-```{r load-data}
-# Set base path relative to this scripts directory
+1. **Recount junction usage** for the three 5' splice sites in this region -
+   the canonical 5'SS, the decoy element, and the annotated alternative 5'SS.
+2. **Cross-species position** of the strongest downstream SpliceAI donor peak
+   in the decoy's intron, from the 100-way multiz alignment.
+
+## Load cross-species SpliceAI scores for the decoy locus
+
+```{r load-maf-spliceai}
 base_path <- normalizePath("..", winslash = "/", mustWork = TRUE)
 
-# Load SpliceAI v3.1 data
-spliceai_data <- fread(file.path(base_path, "results", "all_spliceai_scores_v3.1.tsv"),
-  sep = "\t",
-  header = TRUE
-)
-
-cat("\nLoaded SpliceAI v3.1 data:\n")
-cat("  Total rows:", nrow(spliceai_data), "\n")
-cat("  Total columns:", ncol(spliceai_data), "\n")
-```
-
-## Restrict to the Recount-filtered decoy set
-
-```{r recount-filter}
-# The MSA/SpliceAI scan was run on DecoysInConservedGenes50thpercentile.bed, which
-# is NOT the same list as the protein-coding decoy set. Of the 4,886 decoyIDs in
-# the score table, 4,577 appear in Decoys_proteincoding_splicescores.bed and 309
-# do not - those 309 cannot be judged by the Recount filter at all, because they
-# were never in the set that was queried against Recount.
-#
-# DROP_UNASSESSED controls what happens to those 309:
-#   TRUE  - use the filtered BED strictly as a whitelist (keeps 4,306). This is
-#           the "the filtered BED is the input" reading.
-#   FALSE - remove only the decoys Recount positively flagged, and keep the
-#           unassessed ones (keeps 4,615).
-# Either way the 309 are reported below rather than disappearing silently.
-DROP_UNASSESSED <- TRUE
-
-filtered_bed_path <- file.path(
-  base_path, "data", "Decoys", "Decoys_proteincoding_recount_filtered.bed"
-)
-full_bed_path <- file.path(
-  base_path, "data", "Decoys", "Decoys_proteincoding_splicescores.bed"
-)
-
-if (!file.exists(filtered_bed_path)) {
+# Produced by scripts/maf_spliceai_single_locus.py, which scores ONE locus
+# across every species in the multiz alignment.
+maf_tsv <- file.path(base_path, "results", "hnrnph1_179620582_maf_spliceai.tsv")
+if (!file.exists(maf_tsv)) {
   stop(
-    "Recount-filtered BED not found: ", filtered_bed_path, "\n",
-    "  This file is generated, not checked in. Run:\n",
-    "    python3 scripts/filter_decoys_by_recount.py \\\n",
-    "      --loci-bed data/Decoys/Decoys_proteincoding_splicescores.bed \\\n",
-    "      --junctions results/tcgajunctions.tsv results/srajunctions.tsv results/gtexjunctions.tsv \\\n",
-    "      --out-bed data/Decoys/Decoys_proteincoding_recount_filtered.bed"
+    "Missing: ", maf_tsv, "\n",
+    "  Generate with:\n",
+    "    python3 scripts/maf_spliceai_single_locus.py \\\n",
+    "      --maf reference/chr5.maf.gz \\\n",
+    "      --region chr5:179620038-179620940 --strand - \\\n",
+    "      --out results/hnrnph1_179620582_maf_spliceai.tsv"
   )
 }
 
-# decoyID key is <gene>_<bed_start>, matching filter_decoys_by_recount.py
-bed_keys <- function(path) {
-  b <- fread(path, sep = "\t", header = FALSE, select = 1:6,
-    col.names = c("chr", "start", "end", "gene", "score", "strand"))
-  paste0(b$gene, "_", b$start)
-}
-keep_ids <- bed_keys(filtered_bed_path)
-all_ids <- bed_keys(full_bed_path)
+hnrnph1_all <- fread(maf_tsv, sep = "\t", header = TRUE)
+cat("Species scored:", nrow(hnrnph1_all), "\n")
 
-n_before <- nrow(spliceai_data)
-in_full <- spliceai_data$decoyID %in% all_ids
-in_keep <- spliceai_data$decoyID %in% keep_ids
-n_flagged <- sum(in_full & !in_keep)
-n_unassessed <- sum(!in_full)
+# Attach common name and clade
+species_mapping <- fread(
+  file.path(base_path, "data", "tree_to_clade_mapping.tsv"),
+  sep = "\t", header = TRUE
+)
+id2common <- setNames(species_mapping$matched_common_name, species_mapping$species_id)
+id2clade <- setNames(species_mapping$clade, species_mapping$species_id)
 
-spliceai_data <- if (DROP_UNASSESSED) {
-  spliceai_data[in_keep]
+hnrnph1_all[, common_name := ifelse(species %in% names(id2common), id2common[species], species)]
+hnrnph1_all[, clade := ifelse(species %in% names(id2clade), id2clade[species], "Unknown")]
+
+# -1 marks a species that could not be scored (absent from the alignment block,
+# all-gap, or too short); drop those rather than plotting them at -1.
+hnrnph1_all[max1 == -1, max1 := NA_real_]
+hnrnph1_all[max2 == -1, max2 := NA_real_]
+hnrnph1_all[pos2 == -1, pos2 := NA_integer_]
+
+cat("With a scored downstream peak (max2 & pos2):",
+    nrow(hnrnph1_all[!is.na(max2) & !is.na(pos2)]), "\n")
+```
+
+## Plot 1: Recount junction usage at the three 5' splice sites
+
+```{r recount-junction-usage}
+# Three 5' splice sites in the HNRNPH1 intron 4 region (all minus strand).
+# The decoy is the element under investigation; the other two are the annotated
+# alternatives it would compete with.
+LOCI <- data.table(
+  locus = factor(
+    c("Canonical 5'SS", "Decoy element", "Alternative 5'SS"),
+    levels = c("Canonical 5'SS", "Decoy element", "Alternative 5'SS")
+  ),
+  chrom = "chr5",
+  position = c(179620891L, 179620582L, 179623595L),
+  strand = "-"
+)
+print(LOCI)
+
+# Read counts per junction from the Recount/Snaptron query.
+# Produced by scripts/query_recount_loci.py; one row per
+# junction-sample observation, with a `locus` column matching LOCI$locus.
+recount_tsv <- file.path(base_path, "results", "hnrnph1_3loci_recount.tsv")
+
+if (!file.exists(recount_tsv)) {
+  cat(
+    "NOTE: ", recount_tsv, " not present - skipping plot 1.\n",
+    "  It needs the Recount/Snaptron SQLite database, which is not in this repo.\n",
+    "  Once available, generate it and re-knit.\n",
+    sep = ""
+  )
 } else {
-  spliceai_data[in_keep | !in_full]
-}
+  rc <- fread(recount_tsv, sep = "\t", header = TRUE)
+  MIN_READS <- 5
+  rc_f <- rc[coverage_sum >= MIN_READS]
 
-cat("\nRecount filtering of the SpliceAI score table:\n")
-cat("  decoyIDs before          :", n_before, "\n")
-cat("  removed - Recount-annotated:", n_flagged, "\n")
-cat("  not in protein-coding BED :", n_unassessed,
-  if (DROP_UNASSESSED) "(dropped: DROP_UNASSESSED = TRUE)" else "(kept: DROP_UNASSESSED = FALSE)", "\n")
-cat("  decoyIDs after           :", nrow(spliceai_data), "\n")
-if (!"HNRNPH1_179620582" %in% spliceai_data$decoyID) {
-  stop("HNRNPH1_179620582 did not survive the Recount filter - the figure below would be empty.")
+  cat("Junction observations: ", nrow(rc), " -> ", nrow(rc_f),
+      " at >= ", MIN_READS, " reads\n", sep = "")
+
+  summary_dt <- rc_f[, .(
+    n_samples = sum(samples_count, na.rm = TRUE),
+    n_junctions = .N,
+    median_reads = median(coverage_sum, na.rm = TRUE)
+  ), by = locus]
+  print(summary_dt)
+
+  p_counts <- ggplot(rc_f, aes(x = locus, y = coverage_sum, fill = locus)) +
+    geom_violin(alpha = 0.5, colour = "grey30", scale = "width") +
+    geom_boxplot(width = 0.15, outlier.shape = NA, colour = "grey20", alpha = 0.9) +
+    scale_y_log10(labels = scales::comma) +
+    scale_fill_manual(values = c(
+      "Canonical 5'SS" = "#2a78d6",
+      "Decoy element" = "#A00F0F",
+      "Alternative 5'SS" = "#E68A00"
+    )) +
+    labs(
+      title = "HNRNPH1 intron 4: Recount junction read counts at three 5' splice sites",
+      subtitle = paste0("Junctions with >= ", MIN_READS,
+                        " reads; y-axis log10. Decoy = chr5:179,620,582"),
+      x = NULL, y = "Junction read count (coverage_sum)"
+    ) +
+    theme_minimal(base_size = 16) +
+    theme(legend.position = "none",
+          axis.line = element_line(colour = "black", linewidth = 0.5))
+
+  p_samples <- ggplot(summary_dt, aes(x = locus, y = n_samples, fill = locus)) +
+    geom_col(colour = "grey20", width = 0.65) +
+    geom_text(aes(label = scales::comma(n_samples)), vjust = -0.4, size = 5) +
+    scale_fill_manual(values = c(
+      "Canonical 5'SS" = "#2a78d6",
+      "Decoy element" = "#A00F0F",
+      "Alternative 5'SS" = "#E68A00"
+    )) +
+    labs(
+      title = "Samples using each 5' splice site as a junction",
+      subtitle = paste0("Recount samples with >= ", MIN_READS, " reads"),
+      x = NULL, y = "Number of samples"
+    ) +
+    theme_minimal(base_size = 16) +
+    theme(legend.position = "none",
+          axis.line = element_line(colour = "black", linewidth = 0.5))
+
+  print(p_counts)
+  print(p_samples)
+  dir.create(file.path(base_path, "figures"), showWarnings = FALSE, recursive = TRUE)
+  ggsave(file.path(base_path, "figures", "hnrnph1_3loci_recount_readcounts.pdf"),
+         p_counts, width = 10, height = 7)
+  ggsave(file.path(base_path, "figures", "hnrnph1_3loci_recount_samples.pdf"),
+         p_samples, width = 10, height = 7)
 }
-cat("  HNRNPH1_179620582 retained: yes\n")
 ```
 
-## Parse SpliceAI Data
+## Plot 2: Cross-species position of the decoy element
 
-```{r parse-spliceai}
-# Function to parse SpliceAI v3.1 format: [max1][pos1][max2][pos2][d]
-# Extract max1 (canonical splice score)
-parse_spliceai_max1 <- function(value) {
-  if (is.na(value) || value == "" || value == "[-1.0][-1][-1.0][-1][-1.0]") {
-    return(NA)
-  }
-  match_result <- str_match(value, "\\[([\\d.-]+)\\]\\[(\\d+)\\]\\[([\\d.-]+)\\]\\[(\\d+)\\]\\[([\\d.-]+)\\]")
-  if (is.na(match_result[1])) {
-    return(NA)
-  }
-  max1 <- as.numeric(match_result[2])
-  if (is.na(max1) || max1 == -1.0) {
-    return(NA)
-  }
-  return(max1)
-}
 
-# Function to parse SpliceAI v3.1 format: [max1][pos1][max2][pos2][d]
-# Extract max2 (decoy splice score)
-parse_spliceai_max2 <- function(value) {
-  if (is.na(value) || value == "" || value == "[-1.0][-1][-1.0][-1][-1.0]") {
-    return(NA)
-  }
-  match_result <- str_match(value, "\\[([\\d.-]+)\\]\\[(\\d+)\\]\\[([\\d.-]+)\\]\\[(\\d+)\\]\\[([\\d.-]+)\\]")
-  if (is.na(match_result[1])) {
-    return(NA)
-  }
-  max2 <- as.numeric(match_result[4])
-  if (is.na(max2) || max2 == -1.0) {
-    return(NA)
-  }
-  return(max2)
-}
-
-# Function to parse SpliceAI v3.1 format: [max1][pos1][max2][pos2][d]
-# Extract pos2 (position of max2)
-parse_spliceai_pos2 <- function(value) {
-  if (is.na(value) || value == "" || value == "[-1.0][-1][-1.0][-1][-1.0]") {
-    return(NA)
-  }
-  match_result <- str_match(value, "\\[([\\d.-]+)\\]\\[(\\d+)\\]\\[([\\d.-]+)\\]\\[(\\d+)\\]\\[([\\d.-]+)\\]")
-  if (is.na(match_result[1])) {
-    return(NA)
-  }
-  pos2 <- as.integer(match_result[5])
-  if (is.na(pos2) || pos2 == -1) {
-    return(NA)
-  }
-  return(pos2)
-}
-
-# Get species columns (all except decoyID)
-species_cols <- setdiff(colnames(spliceai_data), "decoyID")
-
-# Parse all data into long format
-parsed_data_list <- list()
-
-for (species in species_cols) {
-  # Extract max1, max2, and pos2 for each species
-  max1_values <- sapply(spliceai_data[[species]], parse_spliceai_max1)
-  max2_values <- sapply(spliceai_data[[species]], parse_spliceai_max2)
-  pos2_values <- sapply(spliceai_data[[species]], parse_spliceai_pos2)
-
-  # Create data frame for this species
-  species_data <- data.frame(
-    decoyID = spliceai_data$decoyID,
-    species = species,
-    max1 = max1_values,
-    max2 = max2_values,
-    pos2 = pos2_values,
-    stringsAsFactors = FALSE
-  )
-
-  parsed_data_list[[species]] <- species_data
-}
-
-# Combine all species data
-all_spliceai_parsed <- bind_rows(parsed_data_list)
-
-# Filter out NA values
-all_spliceai_parsed <- all_spliceai_parsed %>%
-  filter(!is.na(max1) | !is.na(max2))
-
-cat("\nParsed SpliceAI data:\n")
-cat("  Total data points:", nrow(all_spliceai_parsed), "\n")
-cat("  Data points with max1:", sum(!is.na(all_spliceai_parsed$max1)), "\n")
-cat("  Data points with max2:", sum(!is.na(all_spliceai_parsed$max2)), "\n")
-cat("  Data points with pos2:", sum(!is.na(all_spliceai_parsed$pos2)), "\n")
-```
-
-# Decoy HNRNPH1 max2 vs pos2 scatter plot
 
 ```{r scatter-plot-hnrnph1-max2-pos2}
-# Load species mapping to get common names
-species_mapping <- fread(file.path(base_path, "data", "tree_to_clade_mapping.tsv"),
-  sep = "\t",
-  header = TRUE
-)
+# hnrnph1_all is loaded and annotated in the load-maf-spliceai chunk above;
+# species_mapping / clade lookups are already applied there.
 
-# Create lookup: species_id -> matched_common_name
-species_id_to_common <- setNames(species_mapping$matched_common_name, species_mapping$species_id)
-# Create lookup: species_id -> clade
-species_id_to_clade <- setNames(species_mapping$clade, species_mapping$species_id)
-
-# Extract all parsed rows for HNRNPH1_179620582 and annotate species metadata
-hnrnph1_all <- all_spliceai_parsed %>%
-  filter(decoyID == "HNRNPH1_179620582") %>%
-  mutate(
-    common_name = ifelse(species %in% names(species_id_to_common),
-      species_id_to_common[species],
-      species
-    ),
-    clade = ifelse(species %in% names(species_id_to_clade),
-      species_id_to_clade[species],
-      "Unknown"
-    )
-  )
-
-# Save all parsed rows for this decoy as TSV
+# Persist the per-species table for this decoy (same path as before, so any
+# downstream consumer keeps working).
 fwrite(
   hnrnph1_all,
   file = file.path(base_path, "data", "Decoys", "hnrnph1_spliceaispecies.tsv"),
-  sep = "\t"
+  sep = "\t",
+  eol = "\n"
 )
 
-# Subsets for positional scatterplots
+# Subset for the positional scatterplot
 hnrnph1_data_max2 <- hnrnph1_all %>% filter(!is.na(max2) & !is.na(pos2))
 
 cat("\nHNRNPH1_179620582 data:\n")
-cat("  Total parsed rows saved:", nrow(hnrnph1_all), "\n")
+cat("  Species rows saved:", nrow(hnrnph1_all), "\n")
 cat("  Species with max2 and pos2:", nrow(hnrnph1_data_max2), "\n")
-cat("  Output TSV: ", file.path(base_path, "data", "Decoys", "hnrnph1_spliceaispecies.tsv"), "\n", sep = "")
 
 # --- Collapse the source clades into the four plotted groups --------------------
 # The mapping file's clade column splits mammals across five labels. For this

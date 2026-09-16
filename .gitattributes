@@ -1,0 +1,27 @@
+# Force LF on text files regardless of where they are written.
+#
+# Knitting these Rmds from RStudio on Windows against the WSL filesystem writes
+# CRLF: R on Windows uses "\r\n" for both write.table and data.table::fwrite.
+# A CRLF BED/TSV does not error - the trailing \r rides along on the LAST column,
+# so e.g. n_categories becomes "1\r" and every numeric test on it silently fails.
+*.bed   text eol=lf
+*.tsv   text eol=lf
+*.csv   text eol=lf
+*.bedgraph text eol=lf
+*.gtf   text eol=lf
+*.sql   text eol=lf
+*.Rmd   text eol=lf
+*.rmd   text eol=lf
+*.R     text eol=lf
+*.py    text eol=lf
+*.sh    text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+
+# Binary - never touch
+*.pptx  binary
+*.pdf   binary
+*.png   binary
+*.gz    binary
+*.bw    binary
+*.sif   binary

@@ -25,13 +25,11 @@ set -euo pipefail
 
 WINDOWS="50,25,10"
 OUTPREFIX="results/support_sweep"
-GENOME=""
 AFILE=""
 
-while getopts "a:g:o:w:" opt; do
+while getopts "a:o:w:" opt; do
   case $opt in
     a) AFILE="$OPTARG" ;;
-    g) GENOME="$OPTARG" ;;
     o) OUTPREFIX="$OPTARG" ;;
     w) WINDOWS="$OPTARG" ;;
     *) echo "unknown option" >&2; exit 1 ;;
@@ -71,11 +69,15 @@ for W in "${WLIST[@]}"; do
   W=$(echo "$W" | tr -d ' ')
   echo "=== window +/- ${W} nt ==="
 
-  # one count column per category, in A order
+  # one count column per category, in A order.
+  # bedtools window -c appends the count as the LAST column, so its index is
+  # (columns in A) + 1. Hard-coding 7 only works for a BED6 -a.
+  ACOLS=$(awk -F'\t' 'NR==1{print NF; exit}' "$AFILE")
+  CNTCOL=$((ACOLS + 1))
   PASTE_ARGS=()
   for i in "${!NAMES[@]}"; do
     out="$TMP/c${i}.txt"
-    bedtools window -w "$W" -sm -c -a "$AFILE" -b "${PATHS[$i]}" | cut -f7 > "$out"
+    bedtools window -w "$W" -sm -c -a "$AFILE" -b "${PATHS[$i]}" | cut -f"$CNTCOL" > "$out"
     PASTE_ARGS+=("$out")
     echo "    ${NAMES[$i]}: $(awk '$1>0' "$out" | wc -l) sites supported"
   done
@@ -84,15 +86,25 @@ for W in "${WLIST[@]}"; do
 
   NCAT=${#NAMES[@]}
   OUTBED="${OUTPREFIX}_w${W}.bed"
-  awk -v ncat="$NCAT" 'BEGIN{FS=OFS="\t"}
+  NOHITBED="${OUTPREFIX}_w${W}_nohits.bed"
+  # One pass writes both branches: rows supported by >= 1 category, and rows
+  # supported by none. The second file is the "cryptic" set - SpliceAI sites
+  # with no CLIP/prediction support at all. Both carry the same column layout
+  # (A columns + one count per category + hits) so they stay interchangeable
+  # downstream; in the nohits file every count and hits are 0.
+  # Truncate first: awk only creates `nohit` when it actually writes to it, so
+  # a run where every row is supported would otherwise leave a stale file.
+  : > "$NOHITBED"
+  awk -v ncat="$NCAT" -v nohit="$NOHITBED" 'BEGIN{FS=OFS="\t"}
     {
-      hits=0; multi=0
+      hits=0
       for (i = NF-ncat+1; i <= NF; i++) { if ($i > 0) { hits++ } }
-      if (hits > 0) print $0, hits
+      if (hits > 0) print $0, hits; else print $0, 0 > nohit
     }' "$TMP/joined.bed" > "$OUTBED"
 
   TOTAL=$(wc -l < "$AFILE")
   SUP=$(wc -l < "$OUTBED")
+  NOSUP=$(wc -l < "$NOHITBED")
   TWO=$(awk -v ncat="$NCAT" 'BEGIN{FS="\t"}{if ($NF >= 2) n++} END{print n+0}' "$OUTBED")
   PCT=$(awk -v s="$SUP" -v t="$TOTAL" 'BEGIN{printf "%.1f", 100*s/t}')
 
@@ -105,6 +117,11 @@ for W in "${WLIST[@]}"; do
   } >> "$SUMMARY"
 
   echo "    UNION supported: $SUP / $TOTAL (${PCT}%)  -> $OUTBED"
+  echo "    NO support:      $NOSUP / $TOTAL            -> $NOHITBED"
+  if [ $((SUP + NOSUP)) -ne "$TOTAL" ]; then
+    echo "    ERROR: supported ($SUP) + unsupported ($NOSUP) != input ($TOTAL)" >&2
+    exit 1
+  fi
   echo "    supported by >=2 categories: $TWO"
   echo
 done

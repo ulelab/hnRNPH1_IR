@@ -1,0 +1,52 @@
+== knit 1 (expect stop at Part 2)
+Fri Sep 11 16:24:47 BST 2026
+
+Quitting from compile_decoy_intron_data.Rmd:198-253 [filter-cryptics-supported]
+KNIT STOPPED: Canonical support not found: ../results/canonical_supported_sites.bed
+  Run the intersect in 'Between Part 1 and Part 2', then knit again. 
+n_cryptic 269698 
+n_in_intron 267465 
+n_canon 267309 
+cryptic_canonical rows: 276032  unique IDs: 267309 
+== Break A intersect
+SpliceAI input : results/cryptic_canonical_sites.bed (276032 sites)
+  category PRPF8: data/CLIP/PRPF8_clippy_w0.5_rollmean80_minHeightAdjust3.0_minPromAdjust3.0_minGeneCount5_Peaks.bed (227651 features)
+  category SmB: data/CLIP/SmB_clippy_n40_w0.5_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Peaks.bed (152983 features)
+
+=== window +/- 0 nt ===
+    PRPF8: 119486 sites supported
+    SmB: 25279 sites supported
+    UNION supported: 125731 / 276032 (45.5%)  -> results/canonical_support_w0.bed
+    NO support:      150301 / 276032            -> results/canonical_support_w0_nohits.bed
+    supported by >=2 categories: 19034
+
+summary -> results/canonical_support_summary.tsv
+window_nt  spliceai_in  supported  pct   PRPF8   SmB    any_two_plus
+0          276032       125731     45.5  119486  25279  19034
+== knit 2 (expect stop at Part 3)
+Fri Sep 11 16:28:33 BST 2026
+
+Quitting from compile_decoy_intron_data.Rmd:269-320 [load-splice]
+KNIT STOPPED: Re-scored BED(s) not found:
+  ../data/Decoys/decoys_splicescores.bed
+  ../data/Decoys/cryptics_supported_splicescores.bed
+  Run the re-score in 'Between Part 2 and Part 3', then knit again. 
+n_cryptic 269698 
+n_in_intron 267465 
+n_canon 267309 
+cryptic_canonical rows: 276032  unique IDs: 267309 
+cryptics_supported rows: 125253 
+   canon_prpf8 canon_smb      N
+        <lgcl>    <lgcl>  <int>
+1:        TRUE     FALSE 100057
+2:       FALSE      TRUE   6221
+3:        TRUE      TRUE  18975
+Fri Sep 11 16:32:53 BST 2026
+== checks
+results/cryptic_canonical_sites.bed rows=276032 cols=6  CR=0
+results/canonical_supported_sites.bed rows=125731 cols=9  CR=0
+results/cryptics_supported.bed rows=125253 cols=10  CR=0
+rows of cryptics_supported absent from cryptic_sites: 0
+spot A1BG_58347246 kept=1 windows=1 manual PRPF8/SmB-hit windows=1
+spot A1CF_50820756 kept=0 windows=1 manual PRPF8/SmB-hit windows=0
+DONE
