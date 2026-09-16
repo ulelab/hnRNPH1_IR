@@ -1,5 +1,5 @@
 ---
-title: "Decoy Filtering Analysis"
+title: "Protein-coding filter and deep-intronic exon removal for SpliceAI splice-site inferences"
 author: "Decoy Dataset Generation"
 date: "`r Sys.Date()`"
 output:
@@ -8,6 +8,33 @@ output:
     toc_float: true
     code_folding: show
 ---
+
+<!--
+  Two parts, with a bash step between them.
+
+  Part 1 - STEP 1 of dataset generation.
+    Keeps SpliceAI inferences (>= 0.05) that fall inside a protein-coding gene,
+    on the same strand. This is the BASE dataset: everything downstream is
+    derived from it. Exonic sites are deliberately retained here: step 2 splits
+    them into a deep-intronic set and an exonic set (canonical + alternative
+    5'SS) using Wide_canonical_splice_sites.bed, and removing exons first would
+    discard the sites the exonic branch exists to capture.
+    in : data/Decoys/Splice_All.filtered.05min.bed        (BED6, 794,192 sites)
+    out: data/Decoys/spliceai_05min_proteincoding.bed     (BED6)
+
+  Between: bash scripts/split_canonical_exonic.sh
+    -> results/deep_intronic_splice_sites.bed, results/exonic_splice_sites.bed
+
+  Part 2 - STEP 2b.
+    Removes exon overlaps (unstranded, any transcript) from the deep-intronic
+    branch only.
+    in : results/deep_intronic_splice_sites.bed             (BED6)
+    out: data/Decoys/deep_intronic_noexon_splice_sites.bed  (BED6)
+    next: scripts/intersect_spliceai_support.sh -> decoys.bed / cryptic_sites.bed
+
+  Knit once for Part 1 (Part 2 then stops, because its input does not exist
+  yet), run the split script, and knit again.
+-->
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
@@ -18,179 +45,238 @@ library(GenomicRanges)
 library(rtracklayer)
 ```
 
+# Part 1 — Protein-coding filter
+
+## Load SpliceAI inference sites
+
 ```{r load-data}
-# Load DecoySpliceSites_f50.bed file
-# BED format: chr, start, end, name, score, strand, counts
-decoy_bed <- read.table("../data/DecoySpliceSites_f50.bed",
+# BED6: chr, start, end, gene_name, spliceai_donor_score, strand.
+# Single-nucleotide intervals (end = start + 1).
+splice_sites_bed <- "../data/Decoys/Splice_All.filtered.05min.bed"
+if (!file.exists(splice_sites_bed)) {
+    stop(
+        "Input not found: ", splice_sites_bed, "\n",
+        "  Derive it from the unfiltered inference set with:\n",
+        "    awk -F'\\t' '$5>=0.05' data/Decoys/Splice_All.filtered.01min.bed > ",
+        splice_sites_bed
+    )
+}
+
+site_bed <- read.table(splice_sites_bed,
     sep = "\t",
     header = FALSE,
     stringsAsFactors = FALSE
 )
 
-# Set column names for BED file
-colnames(decoy_bed) <- c("chr", "start", "end", "name", "score", "strand", "counts")
+if (ncol(site_bed) != 6) {
+    stop("Expected a 6-column BED, got ", ncol(site_bed), " columns.")
+}
+colnames(site_bed) <- c("chr", "start", "end", "name", "score", "strand")
 
-# Convert to 1-based coordinates
-decoy_gr <- GRanges(
-    seqnames = decoy_bed$chr,
-    ranges = IRanges(start = decoy_bed$start + 1, end = decoy_bed$end),
-    strand = decoy_bed$strand,
-    name = decoy_bed$name,
-    score = decoy_bed$score
+# BED is 0-based half-open; GRanges is 1-based inclusive.
+site_gr <- GRanges(
+    seqnames = site_bed$chr,
+    ranges = IRanges(start = site_bed$start + 1, end = site_bed$end),
+    strand = site_bed$strand,
+    name = site_bed$name,
+    score = site_bed$score
 )
 
-cat("Loaded", length(decoy_gr), "decoy ID regions\n")
+cat("Loaded", length(site_gr), "SpliceAI inference sites\n")
+cat("  SpliceAI score range:", min(site_bed$score), "-", max(site_bed$score), "\n")
+```
 
-# Load GTF file and filter for exons only
+## Build the protein-coding feature universe
+
+```{r protein-coding-universe}
 gtf <- import("../reference/gencode.v49.annotation.gtf.gz", format = "gtf")
 
-# Filter for exon features only
-exon_gr <- gtf[gtf$type == "exon"]
-```
-
-### Exon Removal (Unstranded)
-
-#### This section removes exon-overlapping loci in one unstranded step
-
-```{r find-exon-overlaps-unstranded}
-# Find exon overlaps ignoring strand
-exon_overlaps <- findOverlaps(
-    query = decoy_gr,
-    subject = exon_gr,
-    ignore.strand = TRUE
-)
-
-exon_overlap_df <- data.frame(
-    decoy_name = decoy_gr[queryHits(exon_overlaps)]$name,
-    decoy_chr = seqnames(decoy_gr[queryHits(exon_overlaps)]),
-    decoy_start = start(decoy_gr[queryHits(exon_overlaps)]),
-    decoy_end = end(decoy_gr[queryHits(exon_overlaps)]),
-    decoy_strand = strand(decoy_gr[queryHits(exon_overlaps)]),
-    decoy_score = decoy_gr[queryHits(exon_overlaps)]$score,
-    exon_chr = seqnames(exon_gr[subjectHits(exon_overlaps)]),
-    exon_start = start(exon_gr[subjectHits(exon_overlaps)]),
-    exon_end = end(exon_gr[subjectHits(exon_overlaps)]),
-    exon_strand = strand(exon_gr[subjectHits(exon_overlaps)]),
-    gene_id = exon_gr[subjectHits(exon_overlaps)]$gene_id,
-    gene_name = exon_gr[subjectHits(exon_overlaps)]$gene_name,
-    transcript_id = exon_gr[subjectHits(exon_overlaps)]$transcript_id,
-    exon_number = exon_gr[subjectHits(exon_overlaps)]$exon_number,
-    stringsAsFactors = FALSE
-)
-
-exon_overlap_df$overlap_length <- pmin(exon_overlap_df$decoy_end, exon_overlap_df$exon_end) -
-    pmax(exon_overlap_df$decoy_start, exon_overlap_df$exon_start) + 1
-exon_overlap_df$strand_match <- exon_overlap_df$decoy_strand == exon_overlap_df$exon_strand
-
-cat("  Total decoy rows:", length(decoy_gr), "\n")
-cat("  Rows with exon overlaps:", length(unique(queryHits(exon_overlaps))), "\n")
-cat("  Same strand:", sum(exon_overlap_df$strand_match), "\n")
-cat("  Opposite strand:", sum(!exon_overlap_df$strand_match), "\n")
-```
-
-### Protein Coding Region Overlap Analysis
-
-#### Keep only decoys in introns by filtering to keep only loci in 'protein-coding' regions
-
-```{r remove-exon-overlaps}
-overlapped_idx <- sort(unique(queryHits(exon_overlaps)))
-no_unstranded_idx <- setdiff(seq_len(nrow(decoy_bed)), overlapped_idx)
-no_unstranded_bed <- decoy_bed[no_unstranded_idx, ]
-
-# Create GRanges object for no-unstranded-overlap BED rows
-no_unstranded_gr <- GRanges(
-    seqnames = no_unstranded_bed$chr,
-    ranges = IRanges(start = no_unstranded_bed$start + 1, end = no_unstranded_bed$end),
-    strand = no_unstranded_bed$strand,
-    name = no_unstranded_bed$name,
-    score = no_unstranded_bed$score
-)
-
-cat("Created GRanges object with", length(no_unstranded_gr), "no unstranded decoy ID regions\n")
-
-# Filter GTF for protein coding regions
+# Genes annotated protein_coding, then every feature record belonging to those
+# genes (gene, transcript, exon, CDS, UTR, ...). Using all features rather than
+# just the gene spans keeps the behaviour identical to the previous version.
 protein_coding_genes <- gtf[gtf$type == "gene" & gtf$gene_type == "protein_coding"]
+cat("Protein-coding genes in annotation:", length(protein_coding_genes), "\n")
 
-cat("Found", length(protein_coding_genes), "protein coding genes\n")
-
-# Also get all features (exons, transcripts, etc.) from protein coding genes
 protein_coding_gene_ids <- unique(protein_coding_genes$gene_id)
 protein_coding_features <- gtf[gtf$gene_id %in% protein_coding_gene_ids]
+cat("Feature records belonging to those genes:", length(protein_coding_features), "\n")
 ```
 
+## Keep sites overlapping a protein-coding feature (stranded)
+
 ```{r find-overlaps-protein-coding}
-# Find overlaps between no-unstranded BED rows and protein coding regions
 overlaps_protein_coding <- findOverlaps(
-    query = no_unstranded_gr,
+    query = site_gr,
     subject = protein_coding_features,
     ignore.strand = FALSE
 )
 
-cat("Found", length(overlaps_protein_coding), "overlapping pairs with protein coding regions\n")
+cat("Overlapping pairs:", length(overlaps_protein_coding), "\n")
+
+# Row-level selection: keep exactly the sites that themselves overlap a
+# protein-coding feature.
+#
+# NB this is a deliberate change from the previous version, which selected on
+# `name %in% unique(overlap_df$decoy_name)` - i.e. gene-symbol membership. That
+# kept a site whenever ANY other site sharing its gene symbol overlapped, which
+# is more permissive than intended. Both counts are printed so the difference is
+# visible rather than silent.
+keep_idx <- sort(unique(queryHits(overlaps_protein_coding)))
+pc_bed <- site_bed[keep_idx, ]
+
+keep_names <- unique(site_gr[keep_idx]$name)
+n_by_name <- sum(site_bed$name %in% keep_names)
+
+cat("  Sites in:                      ", nrow(site_bed), "\n")
+cat("  Kept (row-level overlap):      ", nrow(pc_bed), "\n")
+cat("  Would keep (gene-name, old):   ", n_by_name, "\n")
+cat("  Difference attributable to key:", n_by_name - nrow(pc_bed), "\n")
+cat("  Removed:                       ", nrow(site_bed) - nrow(pc_bed), "\n")
 ```
 
-```{r create-protein-coding-overlap-table}
-# Create a data frame with overlap information
-overlap_protein_coding_df <- data.frame(
-    decoy_name = no_unstranded_gr[queryHits(overlaps_protein_coding)]$name,
-    decoy_chr = seqnames(no_unstranded_gr[queryHits(overlaps_protein_coding)]),
-    decoy_start = start(no_unstranded_gr[queryHits(overlaps_protein_coding)]),
-    decoy_end = end(no_unstranded_gr[queryHits(overlaps_protein_coding)]),
-    decoy_strand = strand(no_unstranded_gr[queryHits(overlaps_protein_coding)]),
-    feature_type = protein_coding_features[subjectHits(overlaps_protein_coding)]$type,
-    feature_chr = seqnames(protein_coding_features[subjectHits(overlaps_protein_coding)]),
-    feature_start = start(protein_coding_features[subjectHits(overlaps_protein_coding)]),
-    feature_end = end(protein_coding_features[subjectHits(overlaps_protein_coding)]),
-    feature_strand = strand(protein_coding_features[subjectHits(overlaps_protein_coding)]),
-    gene_id = protein_coding_features[subjectHits(overlaps_protein_coding)]$gene_id,
-    gene_name = protein_coding_features[subjectHits(overlaps_protein_coding)]$gene_name,
-    gene_type = protein_coding_features[subjectHits(overlaps_protein_coding)]$gene_type,
-    stringsAsFactors = FALSE
-)
-
-# Calculate overlap length
-overlap_protein_coding_df$overlap_length <- pmin(overlap_protein_coding_df$decoy_end, overlap_protein_coding_df$feature_end) -
-    pmax(overlap_protein_coding_df$decoy_start, overlap_protein_coding_df$feature_start) + 1
-
-cat("Created overlap table with", nrow(overlap_protein_coding_df), "rows\n")
-
-# Summary statistics for protein coding overlaps
-cat("  Total no unstranded decoy IDs:", length(no_unstranded_gr), "\n")
-cat("  Decoy IDs overlapping protein coding regions:", length(unique(overlap_protein_coding_df$decoy_name)), "\n")
-print(table(overlap_protein_coding_df$feature_type))
-
-protein_coding_decoy_ids <- unique(overlap_protein_coding_df$decoy_name)
-
-cat("Filtering BED data to keep only protein coding overlapping loci...\n")
-cat("  Decoy IDs overlapping protein coding:", length(protein_coding_decoy_ids), "\n")
-cat("  Original rows:", nrow(no_unstranded_bed), "\n")
-
-decoy_protein_coding_bed <- no_unstranded_bed[no_unstranded_bed$name %in% protein_coding_decoy_ids, ]
-
-cat("  Filtered rows:", nrow(decoy_protein_coding_bed), "\n")
-cat("  Removed:", nrow(no_unstranded_bed) - nrow(decoy_protein_coding_bed), "\n")
+```{r feature-type-breakdown}
+# What kind of protein-coding feature each retained site sits in. Exonic and
+# intronic sites are BOTH retained here - the split happens in step 2.
+ft <- protein_coding_features[subjectHits(overlaps_protein_coding)]$type
+cat("Feature types hit (sites may hit several):\n")
+print(sort(table(ft), decreasing = TRUE))
 ```
 
 ```{r deduplicate-final-bed}
-# Remove duplicates based on BED columns 1-4: chr, start, end, name
-before_dedup <- nrow(decoy_protein_coding_bed)
-decoy_protein_coding_bed <- decoy_protein_coding_bed[!duplicated(decoy_protein_coding_bed[, 1:4]), ]
-after_dedup <- nrow(decoy_protein_coding_bed)
-
-cat("Removed", before_dedup - after_dedup, "duplicate rows based on columns 1-4\n")
-cat("Final rows after deduplication:", after_dedup, "\n")
+before_dedup <- nrow(pc_bed)
+pc_bed <- pc_bed[!duplicated(pc_bed[, 1:4]), ]
+cat("Removed", before_dedup - nrow(pc_bed), "duplicate rows (chr/start/end/name)\n")
+cat("Final rows:", nrow(pc_bed), "\n")
 ```
 
+## Write the protein-coding base dataset
+
 ```{r save-protein-coding-results}
-# Save filtered BED rows
-write.table(decoy_protein_coding_bed,
-    file = "../data/DecoySpliceSites_proteincoding.bed",
+# BED6 in, BED6 out - the support-count columns are added later, by
+# scripts/intersect_spliceai_support.sh in step 3.
+out_bed <- "../data/Decoys/spliceai_05min_proteincoding.bed"
+dir.create(dirname(out_bed), showWarnings = FALSE, recursive = TRUE)
+
+write.table(pc_bed,
+    file = out_bed,
     sep = "\t",
     quote = FALSE,
     row.names = FALSE,
-    col.names = FALSE
+    col.names = FALSE,
+    # Force LF. Knitting from Windows RStudio against the WSL filesystem
+    # otherwise writes CRLF, and the trailing \r rides along on the last column
+    # where it silently breaks bedtools and every downstream numeric test.
+    eol = "\n"
 )
 
-cat("Filtered BED saved to ../data/DecoySpliceSites_proteincoding.bed\n")
-cat("  Rows saved:", nrow(decoy_protein_coding_bed), "\n")
+cat("Wrote", out_bed, "\n")
+cat("  Rows:", nrow(pc_bed), "\n")
+cat("\nNext: bash scripts/split_canonical_exonic.sh, then knit again for Part 2\n")
+```
+
+---
+
+# Part 2 — Remove exon overlaps from the deep-intronic set
+
+The canonical split in step 2 removes only sites within ±50 nt of an annotated canonical splice site. It leaves sites inside other exonic sequence: alternative or internal exons of the same gene, or exons of an overlapping gene on either strand. This part removes those, unstranded and against every transcript, so that the deep-intronic set is intronic in every annotated transcript before the CLIP support split. The exonic branch (`results/exonic_splice_sites.bed`) is not touched.
+
+This includes `retained_intron` transcripts, whose exons span introns. The overlap chunk reports how many sites are removed only because of them.
+
+```{r load-deep-intronic}
+deep_intronic_path <- "../results/deep_intronic_splice_sites.bed"
+if (!file.exists(deep_intronic_path)) {
+    stop(
+        "Input not found: ", deep_intronic_path, "\n",
+        "  Part 1 has written data/Decoys/spliceai_05min_proteincoding.bed.\n",
+        "  Split it, then knit again:\n",
+        "    bash scripts/split_canonical_exonic.sh"
+    )
+}
+
+intronic_bed <- read.table(deep_intronic_path,
+    sep = "\t",
+    header = FALSE,
+    stringsAsFactors = FALSE
+)
+if (ncol(intronic_bed) != 6) {
+    stop("Expected a 6-column BED, got ", ncol(intronic_bed), " columns.")
+}
+colnames(intronic_bed) <- c("chr", "start", "end", "name", "score", "strand")
+
+intronic_gr <- GRanges(
+    seqnames = intronic_bed$chr,
+    ranges = IRanges(start = intronic_bed$start + 1, end = intronic_bed$end),
+    strand = intronic_bed$strand,
+    name = intronic_bed$name,
+    score = intronic_bed$score
+)
+cat("Loaded", length(intronic_gr), "deep-intronic sites\n")
+```
+
+```{r exon-universe}
+# A full knit imported the annotation in Part 1; re-import only when this part
+# is run on its own.
+if (!exists("gtf")) {
+    gtf <- import("../reference/gencode.v49.annotation.gtf.gz", format = "gtf")
+}
+# Every exon record, of any gene or transcript type.
+exon_gr <- gtf[gtf$type == "exon"]
+cat("Exon records in annotation:", length(exon_gr), "\n")
+```
+
+```{r find-exon-overlaps-unstranded}
+# Unstranded: an exon on the opposite strand (antisense or overlapping gene)
+# also stops a site from being deep intronic.
+exon_overlaps <- findOverlaps(
+    query = intronic_gr,
+    subject = exon_gr,
+    ignore.strand = TRUE
+)
+overlapped_idx <- sort(unique(queryHits(exon_overlaps)))
+
+same_strand <- as.character(strand(intronic_gr))[queryHits(exon_overlaps)] ==
+    as.character(strand(exon_gr))[subjectHits(exon_overlaps)]
+n_same <- length(unique(queryHits(exon_overlaps)[same_strand]))
+
+not_ri <- !(exon_gr$transcript_type[subjectHits(exon_overlaps)] %in% "retained_intron")
+n_ri_only <- length(overlapped_idx) - length(unique(queryHits(exon_overlaps)[not_ri]))
+
+cat("  Deep-intronic sites:                    ", length(intronic_gr), "\n")
+cat("  Sites overlapping any exon:             ", length(overlapped_idx), "\n")
+cat("    with a same-strand exon:              ", n_same, "\n")
+cat("    with opposite-strand exons only:      ", length(overlapped_idx) - n_same, "\n")
+cat("    via retained_intron transcripts only: ", n_ri_only, "\n")
+```
+
+```{r remove-exon-overlaps}
+noexon_bed <- intronic_bed[setdiff(seq_len(nrow(intronic_bed)), overlapped_idx), ]
+cat("  Removed:  ", nrow(intronic_bed) - nrow(noexon_bed), "\n")
+cat("  Remaining:", nrow(noexon_bed), "\n")
+
+# The HNRNPH1 intron-4 decoy is the positive control for the whole workflow.
+if (!any(noexon_bed$chr == "chr5" & noexon_bed$start == 179620582)) {
+    stop("chr5:179620582 (HNRNPH1 intron-4 decoy) did not survive exon removal.")
+}
+```
+
+```{r save-deep-intronic-noexon}
+noexon_out <- "../data/Decoys/deep_intronic_noexon_splice_sites.bed"
+write.table(noexon_bed,
+    file = noexon_out,
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE,
+    col.names = FALSE,
+    eol = "\n"
+)
+cat("Wrote", noexon_out, "\n")
+cat("  Rows:", nrow(noexon_bed), "\n")
+cat(
+    "\nNext (from hnRNPH1_IR_MAF):\n",
+    "  bash scripts/intersect_spliceai_support.sh -w 0 -a ", sub("^\\.\\./", "", noexon_out),
+    " -o results/clip_support RBPNET=... PRPF8=... SmB=...\n",
+    "  mv results/clip_support_w0.bed results/decoys.bed\n",
+    "  mv results/clip_support_w0_nohits.bed results/cryptic_sites.bed\n",
+    sep = ""
+)
 ```

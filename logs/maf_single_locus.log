@@ -1,0 +1,115 @@
+extracting chr5:179620038-179620940 from reference/chr5.maf.gz ...
+    ...scanned 200000 blocks, kept 0
+    ...scanned 400000 blocks, kept 0
+    ...scanned 600000 blocks, kept 0
+    ...scanned 800000 blocks, kept 0
+    ...scanned 1000000 blocks, kept 0
+    ...scanned 1200000 blocks, kept 0
+    ...scanned 1400000 blocks, kept 0
+    ...scanned 1600000 blocks, kept 0
+    ...scanned 1800000 blocks, kept 0
+    ...scanned 2000000 blocks, kept 0
+    ...scanned 2200000 blocks, kept 0
+    ...scanned 2400000 blocks, kept 0
+    ...scanned 2600000 blocks, kept 0
+    ...scanned 2800000 blocks, kept 0
+    ...scanned 3000000 blocks, kept 0
+    ...scanned 3200000 blocks, kept 0
+    ...scanned 3400000 blocks, kept 0
+    ...scanned 3600000 blocks, kept 0
+    ...scanned 3800000 blocks, kept 0
+    ...scanned 4000000 blocks, kept 0
+    ...scanned 4200000 blocks, kept 0
+    ...scanned 4400000 blocks, kept 0
+    ...scanned 4600000 blocks, kept 0
+    ...scanned 4800000 blocks, kept 0
+    ...scanned 5000000 blocks, kept 0
+    ...scanned 5200000 blocks, kept 0
+    ...scanned 5400000 blocks, kept 0
+    ...scanned 5600000 blocks, kept 0
+    ...scanned 5800000 blocks, kept 0
+    ...scanned 6000000 blocks, kept 0
+    ...scanned 6200000 blocks, kept 0
+    ...scanned 6400000 blocks, kept 0
+  MAF blocks overlapping region: 32
+  species in alignment: 100
+scripts/maf_spliceai_single_locus.py:218: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+  from pkg_resources import resource_filename
+  hg38 ungapped length: 903
+  scored 1/100
+  scored 2/100
+  scored 5/100
+  scored 6/100
+  scored 7/100
+  scored 8/100
+  scored 9/100
+  scored 10/100
+  scored 12/100
+  scored 13/100
+  scored 14/100
+  scored 15/100
+  scored 17/100
+  scored 18/100
+  scored 19/100
+  scored 20/100
+  scored 21/100
+  scored 23/100
+  scored 24/100
+  scored 25/100
+  scored 26/100
+  scored 27/100
+  scored 28/100
+  scored 29/100
+  scored 30/100
+  scored 31/100
+  scored 32/100
+  scored 33/100
+  scored 34/100
+  scored 35/100
+  scored 36/100
+  scored 37/100
+  scored 38/100
+  scored 39/100
+  scored 40/100
+  scored 41/100
+  scored 42/100
+  scored 43/100
+  scored 45/100
+  scored 46/100
+  scored 48/100
+  scored 49/100
+  scored 52/100
+  scored 53/100
+  scored 54/100
+  scored 58/100
+  scored 59/100
+  scored 60/100
+  scored 61/100
+  scored 63/100
+  scored 64/100
+  scored 67/100
+  scored 70/100
+  scored 73/100
+  scored 75/100
+  scored 76/100
+  scored 79/100
+  scored 81/100
+  scored 83/100
+  scored 84/100
+  scored 85/100
+  scored 86/100
+  scored 87/100
+  scored 90/100
+  scored 91/100
+  scored 92/100
+  scored 93/100
+  scored 94/100
+  scored 95/100
+  scored 96/100
+  scored 97/100
+  scored 98/100
+  scored 99/100
+  scored 100/100
+wrote results/hnrnph1_179620582_maf_spliceai.tsv  (100 species)
+  hg38 check -> max1=0.893660 pos1=48 max2=0.221453 pos2=357
+  (v3.1 recorded max1=0.797420 pos1=49 max2=0.178537 pos2=358)

@@ -3,3 +3,28 @@ data/PRPF8_iCLIP_HepG2_xlinks.bed
 data/Decoys/Splice_All.filtered.01min.bed
 data/Decoys/SupportedSpliceSites_f50.bed
 data/PRPF8/
+# Derived SpliceAI score-threshold subsets (regenerate with awk from Splice_All.filtered.01min.bed)
+data/Decoys/Splice_All.filtered.05min.bed
+data/Decoys/Splice_All.filtered.10min.bed
+
+# Support-sweep interval outputs (regenerate with scripts/intersect_spliceai_support.sh);
+# the *_summary.tsv files are small and ARE tracked
+results/support_*_w*.bed
+
+# Flow-downloaded crosslinks and merged tracks
+data/CLIP/
+
+# Decompressed/split annotation (regenerate: zcat reference/gencode.v49.annotation.gtf.gz)
+reference/gencode.v49.annotation.gtf
+reference/gtf_by_chrom/
+reference/GRCh38.primary_assembly.genome.fa.fai
+
+# Large regenerable intermediates (>= 10 MB). Regenerate with
+# scripts/split_canonical_exonic.sh, scripts/intersect_spliceai_support.sh and
+# Part 1 of scripts/compile_decoy_intron_data.Rmd (see README "Ordering (v3)").
+results/proteincoding_splice_sites.bed
+results/deep_intronic_splice_sites.bed
+results/cryptic_sites.bed
+results/cryptic_canonical_sites.bed
+results/cryptic_intronic.bed
+results/*_nohits.bed

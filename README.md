@@ -22,58 +22,180 @@
 
 #### `$ python3 ../scripts/SpliceAI_Inference.py --bed Decoys/DecoySpliceSites_proteincoding.bed --fasta ../../../reference/genomes/Gencode49/GRCh38.primary_assembly.genome.fa --genome ../../../reference/genomes/Gencode49/genome.sizes --out Decoys_proteincoding_splicescores.bed`
 
-## Recount Validation
+## Running Clippy without a container
 
-#### Recount validation is performed with `scripts/query_junctions.py` using inference loci from `Decoys_proteincoding_splicescores.bed` (7-column BED). The script loads loci into an attached in-memory SQLite schema `sql/locus_recount_schema.sql` and joins them to the Recount intron table from `junctions.sqlite` (run separately for TCGA, SRA, and GTEx junction databases) to generate:
-#### - `results/tcgajunctions.tsv`
-#### - `results/srajunctions.tsv`
-#### - `results/gtexjunctions.tsv`
+#### `env/clippy_environment.yml` builds a conda environment that runs Clippy 1.5.0 natively. Every version in it is pinned deliberately - Clippy 1.5.0 predates NumPy 2, pandas 2, plotly 6 and modern bedtools, and an unpinned solve installs all four.
 
-#### - Defines the temporary input table structure used for overlap queries (`chrom`, `start`, `end`, `gene`, `splice_score`, `strand`, `flag`).
-#### - Enables consistent coordinate loading before intersecting against Recount intron junction records.
+#### `$ conda env create -f env/clippy_environment.yml`
+#### `$ conda activate clippy15`
+#### `$ pip install -e /path/to/ulelab/clippy --no-deps`
 
-### Script: `scripts/query_junctions.py`
-#### - Connects to Recount SQLite in read-only mode, loads inference loci into an attached in-memory database, matches loci to introns on `chrom` + `strand`, with boundary proximity (`flank_bp`) on intron start/end and filters to reference-supported records (`annotated = 1`). Finally writes full joined outputs as TSV (`--out-tsv`) and optional terminal previews.
+#### `--no-deps` is required; without it pip re-resolves the dependencies and undoes the pinning.
 
-### Added/returned columns in output TSVs include:
-#### - Locus fields: `locus_id`, `gene`, `chrom`, `locus_start`, `locus_end`, `locus_strand`, `splice_score`
-#### - Junction identity/coordinates: `snaptron_id`, `intron_start`, `intron_end`
-#### - Junction support metrics: `samples_count`, `coverage_sum`, `coverage_avg`, `coverage_median`
-#### - Annotation/source metadata: `left_annotated`, `right_annotated`, `source_dataset_id`, `annotated`
+#### The four failure modes the pins prevent, all of which were hit while building this analysis:
 
-#### Unique IDs added back to *junctions.tsv files with `sed -Ei 's/^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)/\2_\4\t\2\t\3\t\4/' tcgajunctions.tsv`
+| Package | Unpinned result | Symptom |
+|---|---|---|
+| numpy | >= 2.x | numexpr/pandas ABI error on `import clip` |
+| pandas | >= 2.x | peak-calling internals change behaviour |
+| **bedtools** | > 2.26 | `bedtools merge ... -c 11,6 ... only has fields 1 - 0` - the broad-peak merge gets an empty file. **Persists even with the Python stack pinned; this was the hardest one to find.** |
+| plotly | >= 6.x | interactive mode draws the height threshold as `y = position` instead of a horizontal line |
 
-### Defined 3' or 5' splice sites from Recount by determining if the loci of interest match the junction intron start or end using `annotate_recount.sh`
-#### if start_match:
-#### strand + -> junction_type = 5ss
-#### strand - -> junction_type = 3ss
-#### if end_match:
-#### strand + -> junction_type = 3ss
-#### strand - -> junction_type = 5ss
+#### The upstream `environment.yml` shipped with Clippy pins only `bedtools`, `dash`, `dash-bootstrap-components` and `werkzeug`; it leaves numpy, pandas, scipy and pybedtools unbounded and omits plotly entirely, so it no longer produces a working environment.
 
-### Filtering decoys to the Recount-unique set
+#### **Interactive mode under WSL2:** Clippy hardcodes `host="127.0.0.1"` in `clip/interaction.py`, which binds only inside the WSL VM and is unreachable from a Windows browser. Changing that call to read host/port from the environment (defaulting to `0.0.0.0`) makes `clippy ... -int` reachable at `http://localhost:8050`. Running with `debug=True` also starts Flask's reloader as a second process, which re-binds the port and produces `OSError: [Errno 98] Address already in use`.
 
-#### The three `*junctions.tsv` files above are the *matches* - decoy loci that coincide (within `--flank-bp`, default 5) with an **annotated** junction boundary in Recount. A predicted cryptic site that already appears as an annotated junction is a known, used splice site, not a decoy, so these are removed to leave the final unique set.
+## Line endings
 
-#### `scripts/filter_decoys_by_recount.py` performs this subtraction. A locus is keyed as `<gene>_<bed_start>` (matching the `locus_id` column) and is dropped if it appears in **any** of the three databases.
+#### `.gitattributes` forces LF on all text files. Knitting the Rmds from **RStudio on Windows against the WSL filesystem** writes CRLF, because Windows R uses `\r\n` for both `write.table` and `data.table::fwrite`. This does not raise an error - the trailing `\r` attaches to the **last column**, so `n_categories` becomes `"1\r"` and every numeric test on it silently fails. `scripts/decoy_exon_overlaps.Rmd` also sets `eol = "\n"` explicitly on its BED output.
 
-#### `$ python3 scripts/filter_decoys_by_recount.py --loci-bed data/Decoys/Decoys_proteincoding_splicescores.bed --junctions results/tcgajunctions.tsv results/srajunctions.tsv results/gtexjunctions.tsv --out-bed data/Decoys/Decoys_proteincoding_recount_filtered.bed --out-removed results/decoys_removed_by_recount.tsv`
+## v2 dataset: merged CLIP tracks, Clippy peak calling, and the cross-CLIP intersect
 
-#### Result: **15,172 input loci -> 1,259 removed -> 13,913 retained** as `data/Decoys/Decoys_proteincoding_recount_filtered.bed`. The removed loci, with the databases that supported each, are listed in `results/decoys_removed_by_recount.tsv`.
+#### This supersedes the original single-track workflow above. The `-b` side of the intersect is now three peak sets rather than a mix of peaks and raw crosslinks, and the CLIP data is merged across samples pulled from Flow.
 
-#### The script aborts if any locus in a junction TSV is absent from the BED or has mismatched coordinates, so a stale junction file cannot silently produce a wrong filter (override with `--no-strict`).
+### Merged CLIP crosslink tracks
 
-#### **Note: this step is not yet drawn in `figures/decoy_splice_site_flowchart.pdf`, which currently terminates at the 15,172-site box.** The flowchart needs a final node: *"Remove loci matching annotated Recount junctions (TCGA/SRA/GTEx, +/-5 bp) -> 13,913 Predicted Cryptic Splice Sites"*.
+#### Samples were selected from Flow, and their crosslink files were downloaded and merged per target.
 
-#### QC of the subtraction:
-#### - 1,230 of the 1,259 removed loci (97.7%) were found in all three databases, 23 in two, 6 in one - the overlap is highly consistent, as expected for genuinely annotated junctions.
-#### - Removed loci carry a modestly higher SpliceAI score than retained ones (median 0.101 vs 0.072), consistent with them being real splice sites, though the separation is not large.
-#### - Removals occur on all 24 chromosomes at broadly similar rates (4-14%), confirming the query results are genome-wide and not truncated.
-#### - `HNRNPH1_179620582`, the locus used for the conservation figure, is retained.
+#### **Per-sample provenance for the merged tracks is in `results/supplementary_merged_clip_inputs.tsv`** (12 rows: Flow sample name and ID, purification target, assay, cell type, condition, source filename, read and crosslink counts, GEO accession). This is the supplementary table for the paper.
+
+| Track | Samples | Assay | Cell lines | Crosslink reads | Unique positions |
+|---|---|---|---|---|---|
+| `PRPF8_merged.xl.bed` | 4 | eCLIP (ENCODE) | HepG2, K562 | 23,626,946 | 16,052,984 |
+| `SmB_merged.xl.bed` | 8 | iCLIP (mild lysis) | HEK293, HepG2, K562 | 16,450,562 | 12,855,363 |
+
+#### Selection criteria: siRNA-treated samples, cell-cycle-phase samples, size-matched inputs, and non-mild-lysis SmB samples were all excluded. SmB is filed on Flow under the gene symbol **SNRPB** - `purification_target=SmB` returns nothing.
+
+#### **Contig naming:** Flow `.genome.xl.bed` files use Ensembl contigs (`1`, `MT`); every other track here is UCSC (`chr1`, `chrM`). They were converted to UCSC names before merging, and cDNA counts at shared positions were summed. Intersecting the two conventions returns zero overlaps *with exit code 0*, so this is silent if missed.
+
+### Clippy peak calling
+
+#### Peaks are called with the pinned biocontainer `quay.io/biocontainers/clippy:1.5.0--pyhdfd78af_0`, one chromosome at a time (a genome-wide invocation is OOM-killed at ~5.6 GB RSS). Clippy calls peaks per gene and no gene spans two chromosomes, so chunking is equivalent to a whole-genome run, not an approximation - verified by the chr5 subset of a genome-wide file matching a standalone chr5 run exactly.
+
+#### Parameters were tuned separately per target against the crosslink bigWigs in Clippy's interactive mode, because the two tracks differ in assay and depth:
+
+| Track | Parameters | Peaks | Mean width | Median width |
+|---|---|---|---|---|
+| PRPF8 | `-n 80 -w 0.5 -x 3.0 -mx 3.0 -mg 5` | 227,651 | 88.2 nt | 82 nt |
+| SmB | `-n 40 -w 0.5 -x 5.0 -mx 8.0 -mg 5` | 152,983 | 44.8 nt | 42 nt |
+
+#### `-n` rolling-mean window, `-w` width, `-x` min prominence adjust, `-mx` min height adjust, `-mg` min gene counts. Both thresholds are multiples of each gene's mean smoothed coverage, so they normalise to local coverage rather than applying an absolute floor.
+
+#### Two behaviours worth knowing when re-tuning:
+#### - **`-mx` has no effect unless it exceeds `-x`.** Prominence can never exceed a peak's absolute height, so any peak passing the prominence test automatically passes an equal-or-lower height test.
+#### - **`--width` is not encoded in Clippy's output filename** (only rollmean, minHeightAdjust, minPromAdjust, minGeneCount). Runs differing only in width overwrite each other unless the width is put in the output prefix, which is why the peak files carry `w0.5`.
+
+#### PRPF8 peaks are ~2x the width of SmB peaks, a direct consequence of the 80 vs 40 nt window. Raw support counts are therefore not directly comparable between the two categories - PRPF8 presents roughly twice the genomic target per peak.
+
+### Ordering (v3): protein-coding base set first
+
+#### The filtering order was changed so that the protein-coding set is the base dataset, and CLIP support is the LAST split rather than the first. The previous order intersected against CLIP before anything else, which meant every downstream file was conditioned on CLIP support and there was no way to ask which SpliceAI sites in protein-coding introns have *no* support. Exon removal now runs only on the deep-intronic branch, after the canonical split, so the canonical and alternative 5' splice sites still reach the exonic branch.
+
+```
+data/Decoys/Splice_All.filtered.05min.bed              794,192  BED6
+  |  [1]  scripts/decoy_exon_overlaps.Rmd Part 1   protein_coding keep (GRanges, stranded)
+  v
+data/Decoys/spliceai_05min_proteincoding.bed                    BED6
+  |  [2]  scripts/split_canonical_exonic.sh   vs Wide_canonical_splice_sites.bed
+  |-- -v -s --> results/deep_intronic_splice_sites.bed          BED6
+  \-- -c -s --> results/proteincoding_splice_sites.bed          BED6 + canon_count
+                   \- awk '$NF>0' -> results/exonic_splice_sites.bed
+  |  [2b] scripts/decoy_exon_overlaps.Rmd Part 2   exon-overlap removal (unstranded)
+  v
+data/Decoys/deep_intronic_noexon_splice_sites.bed               BED6
+  |  [3]  scripts/intersect_spliceai_support.sh -w 0   RBPnet / PRPF8 / SmB at the site
+  |-- hits > 0  --> results/decoys.bed          FINAL decoy set   BED6 + 3 counts + hits
+  \-- hits == 0 --> results/cryptic_sites.bed   no support at the site
+                       |  [4] scripts/compile_decoy_intron_data.Rmd Parts 1-2
+                       |      cryptic -> Vast-DB intron -> canonical 5'SS window
+                       |      -> intersect with PRPF8 / SmB peaks
+                       v
+                     results/cryptics_supported.bed   canonical 5'SS bound by PRPF8 or SmB
+  |  [5]  scripts/SpliceAI_Inference.py   local re-score of decoys.bed + cryptics_supported.bed
+  v
+  [6]  scripts/compile_decoy_intron_data.Rmd Parts 3-4   local SpliceAI >= 0.1 -> feature table
+```
+
+### Step 1 - protein-coding base set
+
+#### Part 1 of `scripts/decoy_exon_overlaps.Rmd` keeps SpliceAI inferences (>= 0.05) that overlap a feature of a `gene_type == "protein_coding"` gene, on the same strand, using `reference/gencode.v49.annotation.gtf.gz`. Exonic sites are **retained** here - the exonic/intronic split is step 2.
+
+#### The protein-coding keep is **row-level** (`queryHits`). The previous version selected on gene-symbol membership, which kept a site whenever any other site sharing its gene symbol overlapped; the document prints both counts so the difference is visible.
+
+### Step 2 - split into deep intronic and exonic borders
+
+#### `$ bash scripts/split_canonical_exonic.sh`
+
+#### `Wide_canonical_splice_sites.bed` is BED6 with 192,965 intervals, each exactly 100 bp (+/-50 nt around a canonical splice site). "Exonic" therefore means *within 50 nt of an annotated splice site*, not *anywhere in an exon*.
+
+| Output | How | Contents |
+|---|---|---|
+| `results/deep_intronic_splice_sites.bed` | `intersect -v -s` | no canonical-window overlap |
+| `results/proteincoding_splice_sites.bed` | `intersect -c -s` | full set + canonical-overlap count |
+| `results/exonic_splice_sites.bed` | `awk '$NF>0'` | canonical + alternative 5'SS |
+
+#### The script asserts `intronic + exonic == input` and fails loudly otherwise, so a truncated dataset cannot flow downstream unnoticed.
+
+### Step 2b - exon-overlap removal on the deep-intronic branch
+
+#### Knit `scripts/decoy_exon_overlaps.Rmd` again after step 2. Part 2 reloads `results/deep_intronic_splice_sites.bed`, removes every site that overlaps any GENCODE v49 exon on either strand, and writes `data/Decoys/deep_intronic_noexon_splice_sites.bed`. The canonical split only removes sites within 50 nt of a canonical splice site. This step also removes sites inside alternative or internal exons, and inside exons of overlapping genes. The exonic branch is not touched.
+
+#### The exon set includes `retained_intron` transcripts, whose exons span introns, so a site inside an annotated retained intron is removed. The Rmd prints how many sites are removed only because of those transcripts.
+
+#### On the current data, 77,449 of the 367,089 deep-intronic sites are removed, 17,432 of them only because of `retained_intron` transcripts. That leaves **289,640** in `deep_intronic_noexon_splice_sites.bed`. The HNRNPH1 intron-4 decoy is not inside any exon, and the Rmd stops if it is ever removed.
+
+### Step 3 - CLIP support split
+
+#### `$ bash scripts/intersect_spliceai_support.sh -a data/Decoys/deep_intronic_noexon_splice_sites.bed -o results/clip_support -w 0 RBPNET=data/Decoys/rbpnet_clippy_f50_rollmean10_minHeightAdjust1.0_minPromAdjust1.0_minGeneCount5_Peaks.bed PRPF8=data/CLIP/PRPF8_clippy_w0.5_rollmean80_minHeightAdjust3.0_minPromAdjust3.0_minGeneCount5_Peaks.bed SmB=data/CLIP/SmB_clippy_n40_w0.5_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Peaks.bed`
+#### `$ mv results/clip_support_w0.bed results/decoys.bed`
+#### `$ mv results/clip_support_w0_nohits.bed results/cryptic_sites.bed`
+
+#### One pass writes **both** branches:
+#### - `results/decoys.bed` - supported by at least one category at the site. This is the **final decoy set**.
+#### - `results/cryptic_sites.bed` - supported by none. Filtered further in step 4.
+
+#### On the current data, the 289,640 sites split into **19,942 decoys** and **269,698 cryptic sites**. Among the decoys, RBPnet supports 9,526, PRPF8 6,805 and SmB 5,668; 1,865 are supported by two or more.
+
+#### Both carry the same layout (`chr, start, end, gene, spliceai_score, strand, rbpnet, prpf8, smb, hits`), so a tier is selectable at any point with e.g. `awk -F'\t' '$10==3'`. The script asserts `supported + unsupported == input`.
+
+#### **A zero-nt window is used**, because the peak widths (88 nt mean for PRPF8, 45 nt for SmB) already supply the positional tolerance a `-w` window previously provided.
+
+#### The SpliceAI threshold is **0.05**: `data/Decoys/Splice_All.filtered.05min.bed`, 794,192 sites, derived from `Splice_All.filtered.01min.bed` with `awk -F'\t' '$5>=0.05'`. A 0.1 threshold was tested and rejected - the HNRNPH1 target scores 0.073 in the raw whole-intron inference and is lost above 0.08.
+
+### Step 4 - supported cryptics: canonical 5'SS bound by PRPF8 or SmB
+
+#### A cryptic site has no support at the site itself. It is kept only if the canonical 5' splice site of its intron is bound by PRPF8 or SmB. Part 1 of `scripts/compile_decoy_intron_data.Rmd` overlaps each cryptic site with the Vast-DB introns in `PSI_TABLE-hg38.tab.gz`, takes each intron's donor (`+`: intron start, `-`: intron end), and matches it to a `Canonical_splice_sites.bed` window. It writes the matched windows to `results/cryptic_canonical_sites.bed`, with the cryptic ID (`GENE_start`, e.g. `HNRNPH1_179620582`) in column 4. After the intersect below, Part 2 keeps the cryptic sites that have at least one supported window, and writes `results/cryptics_supported.bed` in the same 10-column layout as `decoys.bed`.
+
+#### `$ bash scripts/intersect_spliceai_support.sh -a results/cryptic_canonical_sites.bed -o results/canonical_support -w 0 PRPF8=data/CLIP/PRPF8_clippy_w0.5_rollmean80_minHeightAdjust3.0_minPromAdjust3.0_minGeneCount5_Peaks.bed SmB=data/CLIP/SmB_clippy_n40_w0.5_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Peaks.bed`
+#### `$ mv results/canonical_support_w0.bed results/canonical_supported_sites.bed`
+
+#### On the current data, 269,698 cryptic sites → 267,465 inside a Vast-DB intron → 267,309 with a canonical donor for that intron (276,032 site × window rows) → **125,253 supported cryptics** (46%). By site: 100,057 PRPF8 only, 6,221 SmB only, 18,975 both.
+
+#### **RBPnet is not used for this filter.** It is a PRPF8-binding prediction and fires at most canonical donors: it hits 134,621 of the 192,965 canonical windows (70%), against 78,626 (41%) for PRPF8 or SmB. Including it would keep almost every cryptic site.
+
+#### **`Canonical_splice_sites.bed` is built by `scripts/CreateCanonicalSpliceSiteBed.sh`** from the central ±5 nt of each `Wide_canonical_splice_sites.bed` window. An earlier build read an `introns.bed` that still carried the 400 nt SpliceAI exonic flanks. That shifted every window 400 nt into the flanking exon (+ strand -400, - strand +400), and PRPF8/SmB support at canonical donors came out at 6% instead of 41%. The Rmd stops if no window covers the HNRNPH1 intron-4 donor (chr5:179,620,891).
+
+### Steps 5-6 - re-score and local-score filter
+
+#### `scripts/SpliceAI_Inference.py` re-scores both sets: it slops 24 nt either side, extracts the strand-aware sequence with `bedtools getfasta`, and runs SpliceAI over the 49 nt window to obtain a **local** donor score. Only column 5 is rewritten, so the support counts survive.
+
+#### `$ conda activate spliceai-env`
+#### `$ python3 scripts/SpliceAI_Inference.py --bed results/decoys.bed --fasta <GRCh38.primary_assembly.genome.fa> --genome <genome.sizes> --batch-size 64 --out data/Decoys/decoys_splicescores.bed`
+#### `$ python3 scripts/SpliceAI_Inference.py --bed results/cryptics_supported.bed --fasta <GRCh38.primary_assembly.genome.fa> --genome <genome.sizes> --batch-size 64 --out data/Decoys/cryptics_supported_splicescores.bed`
+
+#### It batches sequences and checkpoints to `<out>.scores`; pass `--resume` to continue an interrupted run. Roughly 0.65 s/site on 12 CPU cores.
+
+#### Part 3 of `scripts/compile_decoy_intron_data.Rmd` loads both re-scored files as one table with a `site_class` column (`decoy` / `cryptic_supported`) and applies the **local SpliceAI >= 0.1** filter (`MIN_LOCAL_SPLICEAI`) before the intron overlap. This threshold applies to the local 49 nt score and is **not** comparable to the 0.05 used upstream on the whole-intron inference - they are different measurements.
+
+#### The rest of Parts 3-4 is unchanged. The existing figures and exports use decoys only. Two new figures plot the supported cryptics: phastCons 100-way and 470-way against the number of Vast-DB tissues with PSI > 10. The final feature table holds both classes.
+
+### Known gap: the alternative 5' splice site
+
+#### The exonic branch is intended to hold both the canonical and the alternative 5' splice sites, but the HNRNPH1 alternative 5'SS at **chr5:179,623,595** (VastDB `HsaALTD0003092-2`) is currently captured by neither branch: it is absent from `Splice_All.filtered.05min.bed` (nearest site >= 0.05 is 298 nt away, at 179,623,297) and no `Wide_canonical_splice_sites.bed` window covers it. Its SpliceAI score is presumably below 0.05; this cannot be confirmed from the repo because `Splice_All.filtered.01min.bed` is not checked in. Resolving this needs either a lower inference threshold or an annotation source that includes annotated alternative donors.
 
 ## Decoy Feature Table Generation
 
-#### The database of decoys in 'protein-coding' introns is uploaded as `Decoys_proteincoding_recount_filtered.bed` (the Recount-filtered 13,913-locus set; set `splicescores_bed` back to `Decoys_proteincoding_splicescores.bed` in the `paths-v3` chunk to use the unfiltered 15,172) in the `compile_decoy_intron_data.Rmd` to integrate intron retention quantification data from `PSI-TABLE-hg38.tab.gz`. The Rmd file uses Genomic Ranges to integrate intron coordinates, unique identifiers `EVENT` and intron retention PSI values in 145 cell and tissue types with SpliceAI inference. Decoy distance from canonical splice site is calculated with strandwise logic. After overlapping the decoy database with introns, MaxEntScan is used to calculate the strength of decoy predicted splice sites and the canonical 5' splice site for the intron harboring the decoy with the scripts `run_maxentscan_decoy.sh` `run_maxentscan_canonical.sh`.Average phastCons 100-way and 470-way scoring across the intron harboring the decoy is calculated with `extract_phastcons_scores.sh`. Part 2 of the R markdown file reloads the results from MaxEntScan and phastCons and merges into the final feature table.
+#### The re-scored decoys (`data/Decoys/decoys_splicescores.bed`) and supported cryptics (`data/Decoys/cryptics_supported_splicescores.bed`) are loaded as one table, with a `site_class` column, in Part 3 of `compile_decoy_intron_data.Rmd` to integrate intron retention quantification data from `PSI-TABLE-hg38.tab.gz`. The Rmd file uses Genomic Ranges to integrate intron coordinates, unique identifiers `EVENT` and intron retention PSI values in 145 cell and tissue types with SpliceAI inference. Decoy distance from canonical splice site is calculated with strandwise logic. After overlapping the decoy database with introns, MaxEntScan is used to calculate the strength of decoy predicted splice sites and the canonical 5' splice site for the intron harboring the decoy with the scripts `run_maxentscan_decoy.sh` `run_maxentscan_canonical.sh`.Average phastCons 100-way and 470-way scoring across the intron harboring the decoy is calculated with `extract_phastcons_scores.sh`. Part 4 of the R markdown file reloads the results from MaxEntScan and phastCons and merges into the final feature table.
 
 ##### Ten predicted decoys are dropped in feature table generation. Dropped decoyIDs:
 ##### "TNNI2_1839212" "SLC7A6_68264187" "OAZ1_2270281" "ITPA_3221726" "ARHGAP40_38626901" "DHX35_38962112"        
@@ -95,59 +217,10 @@ The final plot highlights the proposed decoy site (positions 27-33 in the proces
 
 - `data/hnRNPH1_intron4decoyMSA.processed.fa`
 
+## HNRNPH1 cross-species SpliceAI scores (`scripts/maf_spliceai_single_locus.py`)
 
-## Cross-species SpliceAI scan across whole-intron MAF alignments
+#### Scores the HNRNPH1 intron-4 decoy locus in every species of the UCSC 100-way multiz alignment. The script trims `reference/chr5.maf.gz` to the region with kent `mafsInRegion`, converts the alignment to FASTA with PHAST `msa_view` (`-V` reverse-complements, because HNRNPH1 is on the minus strand), and runs SpliceAI on each species' ungapped sequence. It needs `spliceai-env`, plus `mafsInRegion` and `msa_view` on `PATH` (or pass `--mafs-in-region` / `--msa-view`).
 
-#### This is the workflow behind `results/all_spliceai_scores_v3.1.tsv`, the table used for the HNRNPH1 positional-shift figure. It asks, for every decoy locus and every species in the UCSC 100-way alignment, where the strongest SpliceAI donor signal sits inside the intron relative to the canonical 5' splice site.
+#### `$ python3 scripts/maf_spliceai_single_locus.py --maf reference/chr5.maf.gz --out results/hnrnph1_179620582_maf_spliceai.tsv`
 
-#### **Full provenance, including which script version produced the table and the evidence for it, is in [`PROVENANCE.md`](PROVENANCE.md). Read that before citing this pipeline in a manuscript.**
-
-### Pipeline
-
-#### 1. `scripts/split_chromosomes.sh` splits the decoy BED into ~50-locus parts, producing the `chrparts.txt` manifest (109 parts).
-#### 2. `scripts/run_mafsInRegion_array.sbatch` (SLURM array 1-109) runs kent `mafsInRegion` to cut a per-locus MAF out of each chromosome's multiz alignment. `scripts/run_ctrl_mafsInRegion_array.sbatch` does the same for the matched control set.
-#### 3. `scripts/process_maf_spliceai_v2.5.py`, driven by `scripts/process_maf_spliceai_array.sbatch`, converts each MAF to FASTA with `msa_view` (`-V` to reverse-complement on the minus strand), then runs the 5-model SpliceAI ensemble over each species' ungapped sequence. For every species it records the canonical donor peak (`max1`/`pos1`) and the strongest downstream cryptic peak (`max2`/`pos2`), searching from `pos1 + 20` onward.
-#### 4. `scripts/combine_spliceai_tsv.py` concatenates the 109 per-part TSVs into the single wide table.
-
-### Output format
-
-#### One row per decoy locus, one column per species (100 species from `data/tree_to_clade_mapping.tsv`). Each cell is `[max1][pos1][max2][pos2][d]`:
-
-#### - `max1` / `pos1` - peak SpliceAI donor score in the canonical 5' splice-site search window, and its position in nt from the intron start
-#### - `max2` / `pos2` - peak donor score downstream of `pos1 + 20` (the proposed cryptic regulatory element), and its position
-#### - `d` - normalized intron-length divergence from hg38, `d = abs(n - v) / v`, where `v` is the hg38 ungapped intron length and `n` is this species'. This is a length ratio, **not** a phylogenetic distance; it is what widens the `max1` search window for species with longer introns.
-#### - `-1` in any field means the score could not be computed: species absent from the alignment block, empty or invalid MAF, or an all-gap sequence
-
-### The v3 re-scoring pass
-
-#### `scripts/process_maf_spliceai_v3.py` is a **later, separate** pass that takes an existing v3.1 TSV via `--v31_tsv`, re-extracts a local 50-nt window around each recorded `pos1`/`pos2`, and rewrites only `max1`/`max2` while copying `pos1`, `pos2` and `d` through unchanged. It did not produce `all_spliceai_scores_v3.1.tsv` - it consumes it. Its driver `scripts/process_maf_spliceai_array_v3.sbatch` still carries an unfilled `V31_TSV` placeholder and no output of this pass exists in the repository. It is kept for the record; see `PROVENANCE.md`.
-
-### Single-locus streaming
-
-#### `scripts/stream_maf_region.py` and `scripts/test_stream_maf_hnrnph1.sh` pull the alignment for one region without going through the full array, which is how the HNRNPH1 intron 4 locus was inspected interactively.
-
-## Positional-shift figure (`scripts/hnrnph1decoyposition.Rmd`)
-
-#### Reads `results/all_spliceai_scores_v3.1.tsv` and `data/tree_to_clade_mapping.tsv`, parses the bracketed cells, filters to `decoyID == "HNRNPH1_179620582"`, and plots `pos2` against `max2` for each species.
-
-#### Species are collapsed into four plotted groups: **placental mammals** (Afrotheria, Euarchontoglires, Laurasiatheria, Primate, plus Armadillo, which the mapping file files under the catch-all `Mammal` clade despite being a xenarthran), **other mammals** (opossum, Tasmanian devil, wallaby, platypus), **Aves**, and **Fish**. Sarcopterygii is dropped from this figure. Nine species are labelled: cat, pig, human, rat, cow, gorilla, chimp, baboon, mouse.
-
-#### Group is encoded redundantly by both fill colour and point shape. The palette was checked for colour-vision deficiency across all pairs (OKLab dE under Machado 2009 severity-1.0 simulation); the mammal red/orange pair and the red/green pair sit in warning bands, so the shape scale is load-bearing and must not be removed.
-
-
-### Recount filtering applied upstream of the figure
-
-#### The `recount-filter` chunk restricts the score table to the Recount-filtered decoy set before parsing. Of the 4,886 decoyIDs in `all_spliceai_scores_v3.1.tsv`, 271 match an annotated Recount junction and are removed.
-
-#### A further 309 decoyIDs are **not present in `Decoys_proteincoding_splicescores.bed` at all** - the MSA/SpliceAI scan was run on `DecoysInConservedGenes50thpercentile.bed`, a different decoy list, so these were never queried against Recount and cannot be judged by this filter. The `DROP_UNASSESSED` flag at the top of the chunk decides their fate:
-
-#### - `TRUE` (default) - treat the filtered BED strictly as a whitelist, leaving **4,306** decoyIDs
-#### - `FALSE` - remove only the 271 Recount-flagged decoys and keep the 309 unassessed ones, leaving **4,615**
-
-#### Both counts are printed when the chunk runs, so the 309 are never dropped silently. The chunk aborts if `HNRNPH1_179620582` does not survive, since the figure would otherwise be empty.
-
-### Outputs
-
-- `data/Decoys/hnrnph1_spliceaispecies.tsv`
-- `figures/hnrnph1_max2_pos2_scatterplot.pdf`
-- `figures/hnrnph1_max2_pos2_scatterplot.png`
+#### The default region is `chr5:179620038-179620941` (1-based, inclusive). The output has one row per species (100 rows). `max1`/`pos1` is the canonical 5' splice-site peak and its position in the window. `max2`/`pos2` is the strongest donor peak further into the intron; the decoy is at `pos2 = 358` in hg38. `d` is the intron-length divergence from hg38, `abs(n - v) / v`. `scripts/hnrnph1decoyposition.Rmd` plots `max2` against `pos2` from this file.
