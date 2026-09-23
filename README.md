@@ -108,12 +108,13 @@ data/Decoys/deep_intronic_noexon_splice_sites.bed               BED6
   \-- hits == 0 --> results/cryptic_sites.bed   no support at the site
                        |  [4] scripts/compile_decoy_intron_data.Rmd Parts 1-2
                        |      cryptic -> Vast-DB intron -> canonical 5'SS window
-                       |      -> intersect with PRPF8 / SmB peaks
+                       |      -> intersect with RBPnet / PRPF8 / SmB peaks
                        v
-                     results/cryptics_supported.bed   canonical 5'SS bound by PRPF8 or SmB
+                     results/cryptics_supported.bed   canonical 5'SS supported by any track
   |  [5]  scripts/SpliceAI_Inference.py   local re-score of decoys.bed + cryptics_supported.bed
   v
-  [6]  scripts/compile_decoy_intron_data.Rmd Parts 3-4   local SpliceAI >= 0.1 -> feature table
+  [6]  scripts/compile_decoy_intron_data.Rmd Parts 3-4   local SpliceAI >= 0.1 -> remove HsaALTD donors
+       -> results/decoys_final.bed, results/cryptics_supported_final.bed -> feature table
 ```
 
 ### Step 1 - protein-coding base set
@@ -162,16 +163,16 @@ data/Decoys/deep_intronic_noexon_splice_sites.bed               BED6
 
 #### The SpliceAI threshold is **0.05**: `data/Decoys/Splice_All.filtered.05min.bed`, 794,192 sites, derived from `Splice_All.filtered.01min.bed` with `awk -F'\t' '$5>=0.05'`. A 0.1 threshold was tested and rejected - the HNRNPH1 target scores 0.073 in the raw whole-intron inference and is lost above 0.08.
 
-### Step 4 - supported cryptics: canonical 5'SS bound by PRPF8 or SmB
+### Step 4 - supported cryptics: canonical 5'SS supported by RBPnet, PRPF8 or SmB
 
-#### A cryptic site has no support at the site itself. It is kept only if the canonical 5' splice site of its intron is bound by PRPF8 or SmB. Part 1 of `scripts/compile_decoy_intron_data.Rmd` overlaps each cryptic site with the Vast-DB introns in `PSI_TABLE-hg38.tab.gz`, takes each intron's donor (`+`: intron start, `-`: intron end), and matches it to a `Canonical_splice_sites.bed` window. It writes the matched windows to `results/cryptic_canonical_sites.bed`, with the cryptic ID (`GENE_start`, e.g. `HNRNPH1_179620582`) in column 4. After the intersect below, Part 2 keeps the cryptic sites that have at least one supported window, and writes `results/cryptics_supported.bed` in the same 10-column layout as `decoys.bed`.
+#### A cryptic site has no support at the site itself. It is kept only if the canonical 5' splice site of its intron is supported by RBPnet, PRPF8 or SmB - the same three tracks as step 3. Part 1 of `scripts/compile_decoy_intron_data.Rmd` overlaps each cryptic site with the Vast-DB introns in `PSI_TABLE-hg38.tab.gz`, takes each intron's donor (`+`: intron start, `-`: intron end), and matches it to a `Canonical_splice_sites.bed` window. It writes the matched windows to `results/cryptic_canonical_sites.bed`, with the cryptic ID (`GENE_start`, e.g. `HNRNPH1_179620582`) in column 4. After the intersect below, Part 2 keeps the cryptic sites that have at least one supported window, and writes `results/cryptics_supported.bed` in the same 10-column layout as `decoys.bed`.
 
-#### `$ bash scripts/intersect_spliceai_support.sh -a results/cryptic_canonical_sites.bed -o results/canonical_support -w 0 PRPF8=data/CLIP/PRPF8_clippy_w0.5_rollmean80_minHeightAdjust3.0_minPromAdjust3.0_minGeneCount5_Peaks.bed SmB=data/CLIP/SmB_clippy_n40_w0.5_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Peaks.bed`
+#### `$ bash scripts/intersect_spliceai_support.sh -a results/cryptic_canonical_sites.bed -o results/canonical_support -w 0 RBPNET=data/Decoys/rbpnet_clippy_f50_rollmean10_minHeightAdjust1.0_minPromAdjust1.0_minGeneCount5_Peaks.bed PRPF8=data/CLIP/PRPF8_clippy_w0.5_rollmean80_minHeightAdjust3.0_minPromAdjust3.0_minGeneCount5_Peaks.bed SmB=data/CLIP/SmB_clippy_n40_w0.5_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Peaks.bed`
 #### `$ mv results/canonical_support_w0.bed results/canonical_supported_sites.bed`
 
-#### On the current data, 269,698 cryptic sites → 267,465 inside a Vast-DB intron → 267,309 with a canonical donor for that intron (276,032 site × window rows) → **125,253 supported cryptics** (46%). By site: 100,057 PRPF8 only, 6,221 SmB only, 18,975 both.
+#### On the current data, 269,698 cryptic sites → 267,465 inside a Vast-DB intron → 267,309 with a canonical donor for that intron (276,032 site × window rows) → **191,904 supported cryptics** (72%). By track at the donor: RBPnet 135,874, PRPF8 119,032, SmB 25,196; 66,651 are supported by RBPnet alone.
 
-#### **RBPnet is not used for this filter.** It is a PRPF8-binding prediction and fires at most canonical donors: it hits 134,621 of the 192,965 canonical windows (70%), against 78,626 (41%) for PRPF8 or SmB. Including it would keep almost every cryptic site.
+#### RBPnet hits 134,621 of the 192,965 canonical windows (70%), and PRPF8 or SmB 78,626 (41%), so with all three tracks most cryptics with a canonical donor pass. The selectivity of this step comes mainly from requiring a Vast-DB intron with an annotated canonical donor.
 
 #### **`Canonical_splice_sites.bed` is built by `scripts/CreateCanonicalSpliceSiteBed.sh`** from the central ±5 nt of each `Wide_canonical_splice_sites.bed` window. An earlier build read an `introns.bed` that still carried the 400 nt SpliceAI exonic flanks. That shifted every window 400 nt into the flanking exon (+ strand -400, - strand +400), and PRPF8/SmB support at canonical donors came out at 6% instead of 41%. The Rmd stops if no window covers the HNRNPH1 intron-4 donor (chr5:179,620,891).
 
@@ -187,7 +188,9 @@ data/Decoys/deep_intronic_noexon_splice_sites.bed               BED6
 
 #### Part 3 of `scripts/compile_decoy_intron_data.Rmd` loads both re-scored files as one table with a `site_class` column (`decoy` / `cryptic_supported`) and applies the **local SpliceAI >= 0.1** filter (`MIN_LOCAL_SPLICEAI`) before the intron overlap. This threshold applies to the local 49 nt score and is **not** comparable to the 0.05 used upstream on the whole-intron inference - they are different measurements.
 
-#### The rest of Parts 3-4 is unchanged. The existing figures and exports use decoys only. Two new figures plot the supported cryptics: phastCons 100-way and 470-way against the number of Vast-DB tissues with PSI > 10. The final feature table holds both classes.
+#### Part 3 then removes **annotated alternative 5' splice sites**: any site whose position (BED start + 1) and strand match a donor of a Vast-DB `HsaALTD` (Alt5) event in `PSI_TABLE-hg38.tab.gz`. Every donor is parsed from the event's `FullCO` (133,342 unique donors). The match is exact: on `exonic_splice_sites.bed`, 45,088 sites match at offset 0, against at most 730 at ±1–2 nt. Applied before the local-score filter, it would remove 1,543 of 19,942 decoys and 3,989 of 125,253 supported cryptics. The final sets are written to `results/decoys_final.bed` and `results/cryptics_supported_final.bed`.
+
+#### Parts 3-4 compute every feature for both classes in one pass: the phastCons, MaxEntScan and GC (`scripts/extract_gc_content.sh`: intron GC and GC of the 49 nt re-score window) commands run once on BEDs that hold decoys and supported cryptics together, and Part 4 merges the results back by ID. The final feature table `results/decoy_intron_features_final.tsv` therefore has identical columns for both classes, with `site_class` telling them apart, so they can be compared as two groups on tissue counts with PSI > 10, intron length, GC, local SpliceAI, MaxEnt and phastCons. `results/decoy_vs_cryptic_class_summary.tsv` gives n, median and IQR of each feature per class, and `figures/decoy_vs_cryptic_class_comparison.pdf` shows the distributions side by side. The existing decoy-only figures are unchanged; two figures plot the supported cryptics' phastCons 100-way and 470-way against the number of tissues with PSI > 10.
 
 ### Known gap: the alternative 5' splice site
 
@@ -216,6 +219,18 @@ The final plot highlights the proposed decoy site (positions 27-33 in the proces
 ### Output written by the Figure 1 workflow
 
 - `data/hnRNPH1_intron4decoyMSA.processed.fa`
+
+## Decoys vs supported cryptics: exploration notebook
+
+#### `notebooks/decoy_vs_cryptic_features.ipynb` (kernel `rbpnet-env`; needs pandas, statsmodels, seaborn) loads `results/decoy_intron_features_final.tsv` and compares the two classes with proportions and effect sizes rather than raw counts, since there are 2.7x more cryptics than decoys. HNRNPH1 is marked on every plot. Figures go to `figures/notebook/`.
+
+#### - **A.** Retention propensity: proportion of sites with PSI > 10 in at least k tissues against k, with a logistic fit on log(1+k) per class.
+#### - **B.** Tissue count against local SpliceAI, MaxEnt and intron GC, with negative-binomial regression per class (the count is over-dispersed: variance ~25x the mean).
+#### - **C.** GC content (intron, 49 nt site window) against tissue count as 2D histograms normalised to percent of each class, plus the per-bin difference.
+#### - **D.** Statistics. ANOVA is avoided: with two groups it is a t-test, the features are skewed or bounded, and at n = 6.5k vs 17.7k every difference is "significant". Instead: Mann-Whitney with Cliff's delta and BH correction per feature (`figures/notebook/D_effect_sizes.tsv`), a logistic regression of class on standardised features (with VIFs), and a negative-binomial regression of tissue count on class adjusted for the features that differ between classes.
+#### - **E.** ECDFs, site competitiveness (MaxEnt site minus canonical) and intron position against retention, decoys by support tier, and Spearman correlation heatmaps per class.
+
+#### Regenerate with `jupyter nbconvert --to notebook --execute --inplace notebooks/decoy_vs_cryptic_features.ipynb` from the repo root.
 
 ## HNRNPH1 cross-species SpliceAI scores (`scripts/maf_spliceai_single_locus.py`)
 

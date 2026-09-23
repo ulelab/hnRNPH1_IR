@@ -6,12 +6,12 @@ output: html_document
 <!--
   Four-part workflow, with a bash step after each of the first three:
   Part 1: Load cryptic_sites.bed (deep-intronic SpliceAI sites with no RBPnet/PRPF8/SmB support at the site), overlap with Vast-DB PSI Table introns, find each intron's canonical 5' splice site in Canonical_splice_sites.bed, and write those windows with the cryptic ID in column 4.
-  After Part 1: Intersect the windows with the PRPF8 and SmB peaks (intersect_spliceai_support.sh) -> canonical_supported_sites.bed.
+  After Part 1: Intersect the windows with the RBPnet, PRPF8 and SmB peaks (intersect_spliceai_support.sh) -> canonical_supported_sites.bed.
   Part 2: Keep the cryptic sites whose canonical 5' splice site is supported -> cryptics_supported.bed.
   After Part 2: Re-score decoys.bed and cryptics_supported.bed with SpliceAI_Inference.py (local 49 nt donor score).
-  Part 3: Load both re-scored BEDs as one table (site_class = decoy / cryptic_supported), filter to local SpliceAI >= 0.1, overlap with PSI Table introns, extract strand-aware distance from the canonical 5' splice site, write step1 TSV + BEDs for bash processing.
-  After Part 3: Run extract_phastcons_scores.sh to calculate average phastCons scores over intron segments harboring each site. Use run_maxentscan_canonical.sh and run_maxentscan_decoy.sh to calculate MaxEntScan score for both the site and its canonical 5' splice site in bash; save TSV/BED outputs.
-  Part 4: Reload step1 table, merge scores, plot, write final TSV feature table of decoys and supported cryptics with their introns.
+  Part 3: Load both re-scored BEDs as one table (site_class = decoy / cryptic_supported), filter to local SpliceAI >= 0.1, remove annotated alternative 5' splice sites (Vast-DB HsaALTD donors) and write the final BEDs, overlap with PSI Table introns, extract strand-aware distance from the canonical 5' splice site, write step1 TSV + BEDs for bash processing.
+  After Part 3: Run extract_phastcons_scores.sh to calculate average phastCons scores over intron segments harboring each site. Use run_maxentscan_canonical.sh and run_maxentscan_decoy.sh to calculate MaxEntScan score for both the site and its canonical 5' splice site in bash. Run extract_gc_content.sh for intron and 49 nt site GC. These run once on the combined BEDs, so decoys and cryptics get the same features.
+  Part 4: Reload step1 table, merge scores, plot, write the final feature table (decoys and supported cryptics, same columns) and a per-class summary.
 
   Every splice-site BED here is 10 columns: BED6 + rbpnet/prpf8/smb support
   counts + n_categories. After the re-score by scripts/SpliceAI_Inference.py,
@@ -74,6 +74,20 @@ Loaded once, for Part 1 (cryptic → canonical donor) and Part 3 (intron feature
 
 ```{r load-psi-v3}
 psi <- fread(psi_table, sep = "\t", header = TRUE)
+
+# Annotated alternative 5' splice sites, removed in Part 3. FullCO lists every
+# donor of an Alt5 event: + strand "chr:acceptor-D1+D2,next", - strand
+# "chr:D1+D2-acceptor,next".
+altd_co <- unique(psi[grepl("^HsaALTD", EVENT), FullCO])
+altd_donors <- rbindlist(lapply(strsplit(altd_co, ":", fixed = TRUE), function(x) {
+  ends <- strsplit(sub(",.*", "", x[2]), "-", fixed = TRUE)[[1]]
+  minus <- grepl("+", ends[1], fixed = TRUE)
+  d <- strsplit(if (minus) ends[1] else ends[2], "+", fixed = TRUE)[[1]]
+  data.table(chr = x[1], donor = suppressWarnings(as.integer(d)), strand = if (minus) "-" else "+")
+}))
+altd_donors <- unique(altd_donors[!is.na(donor)])
+cat("Annotated alternative 5' splice sites (HsaALTD donors):", nrow(altd_donors), "\n")
+
 psi <- psi[grepl("^HsaIN", EVENT)]
 q_cols <- grep("-Q$", names(psi), value = TRUE)
 if (length(q_cols) > 0) psi[, (q_cols) := NULL]
@@ -95,7 +109,7 @@ psi_gr <- GRanges(
 
 # Part 1 — Match cryptic sites to their canonical 5' splice site
 
-`cryptic_sites.bed` holds deep-intronic SpliceAI sites with no RBPnet, PRPF8 or SmB support at the site itself. They are kept only if the canonical 5' splice site of their intron is bound by PRPF8 or SmB. This part finds that donor. Each cryptic site is overlapped with the Vast-DB introns. Each intron's donor (`+`: intron start, `−`: intron end) must fall in a `Canonical_splice_sites.bed` window, which spans ±5 nt around an annotated canonical donor. The matched windows are written with the cryptic ID (`GENE_start`) in column 4, ready for the bedtools intersect.
+`cryptic_sites.bed` holds deep-intronic SpliceAI sites with no RBPnet, PRPF8 or SmB support at the site itself. They are kept only if the canonical 5' splice site of their intron is supported by RBPnet, PRPF8 or SmB. This part finds that donor. Each cryptic site is overlapped with the Vast-DB introns. Each intron's donor (`+`: intron start, `−`: intron end) must fall in a `Canonical_splice_sites.bed` window, which spans ±5 nt around an annotated canonical donor. The matched windows are written with the cryptic ID (`GENE_start`) in column 4, ready for the bedtools intersect.
 
 ```{r load-cryptics}
 if (!file.exists(cryptic_sites_bed)) {
@@ -186,12 +200,12 @@ cat("Wrote", cryptic_canonical_bed, " rows:", nrow(cryptic_canonical), "\n")
 
 #### **Stop here after knitting Part 1** and run from `hnRNPH1_IR_MAF`:
 
-#### `$ bash scripts/intersect_spliceai_support.sh -a results/cryptic_canonical_sites.bed -o results/canonical_support -w 0 PRPF8=data/CLIP/PRPF8_clippy_w0.5_rollmean80_minHeightAdjust3.0_minPromAdjust3.0_minGeneCount5_Peaks.bed SmB=data/CLIP/SmB_clippy_n40_w0.5_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Peaks.bed`
+#### `$ bash scripts/intersect_spliceai_support.sh -a results/cryptic_canonical_sites.bed -o results/canonical_support -w 0 RBPNET=data/Decoys/rbpnet_clippy_f50_rollmean10_minHeightAdjust1.0_minPromAdjust1.0_minGeneCount5_Peaks.bed PRPF8=data/CLIP/PRPF8_clippy_w0.5_rollmean80_minHeightAdjust3.0_minPromAdjust3.0_minGeneCount5_Peaks.bed SmB=data/CLIP/SmB_clippy_n40_w0.5_rollmean40_minHeightAdjust8.0_minPromAdjust5.0_minGeneCount5_Peaks.bed`
 #### `$ mv results/canonical_support_w0.bed results/canonical_supported_sites.bed`
 
-#### Only PRPF8 and SmB count as support here. RBPnet is left out because it is a PRPF8-binding prediction that fires at most canonical donors. It hits 134,621 of 192,965 canonical windows (70%), against 78,626 (41%) for PRPF8 or SmB, so including it would make the filter nearly non-selective.
+#### The same three tracks as the step-3 site intersect count as support. RBPnet hits 134,621 of the 192,965 canonical windows (70%) and PRPF8 or SmB 78,626 (41%), so most of the selectivity comes from the canonical-donor match itself rather than from this intersect.
 
-#### The output is BED6 + `PRPF8` + `SmB` counts + `hits`, and holds only the supported windows (`hits > 0`).
+#### The output is BED6 + `RBPNET` + `PRPF8` + `SmB` counts + `hits`, and holds only the supported windows (`hits > 0`).
 
 # Part 2 — Keep cryptic sites whose canonical 5' splice site is bound
 
@@ -203,15 +217,15 @@ if (!file.exists(canonical_supported_bed)) {
   )
 }
 canon_sup <- fread(canonical_supported_bed, sep = "\t", header = FALSE)
-if (ncol(canon_sup) != 9) {
+if (ncol(canon_sup) != 10) {
   stop(
-    "Expected 9 columns (BED6 + PRPF8 + SmB + hits), got ", ncol(canon_sup),
-    ". Was the intersect run with exactly PRPF8 and SmB?"
+    "Expected 10 columns (BED6 + RBPNET + PRPF8 + SmB + hits), got ", ncol(canon_sup),
+    ". Was the intersect run with exactly RBPNET, PRPF8 and SmB, in that order?"
   )
 }
 setnames(canon_sup, c(
   "chr", "start", "end", "decoyID", "SpliceAI_score", "strand",
-  "canon_prpf8", "canon_smb", "canon_hits"
+  "canon_rbpnet", "canon_prpf8", "canon_smb", "canon_hits"
 ))
 
 # Every ID must come from this knit's Part 1. Otherwise the intersect output
@@ -225,6 +239,7 @@ if (length(stale) > 0) {
 }
 
 per_site <- canon_sup[canon_hits > 0, .(
+  canon_rbpnet = any(canon_rbpnet > 0),
   canon_prpf8 = any(canon_prpf8 > 0),
   canon_smb = any(canon_smb > 0)
 ), by = decoyID]
@@ -236,12 +251,11 @@ fwrite(
 )
 
 cat("  Cryptic sites with a canonical donor:       ", n_canon, "\n")
-cat("  ... donor bound by PRPF8 or SmB (kept):     ", nrow(cryptics_supported), "\n")
-cat(
-  "      by site - PRPF8 only:", per_site[canon_prpf8 & !canon_smb, .N],
-  " SmB only:", per_site[!canon_prpf8 & canon_smb, .N],
-  " both:", per_site[canon_prpf8 & canon_smb, .N], "\n"
-)
+cat("  ... donor supported by RBPnet, PRPF8 or SmB (kept):", nrow(cryptics_supported), "\n")
+cat("      by track:  RBPnet", per_site[canon_rbpnet == TRUE, .N],
+    " PRPF8", per_site[canon_prpf8 == TRUE, .N],
+    " SmB", per_site[canon_smb == TRUE, .N], "\n")
+cat("      RBPnet only (would be lost without it):", per_site[canon_rbpnet & !canon_prpf8 & !canon_smb, .N], "\n")
 cat("Wrote", cryptics_supported_bed, "\n")
 
 decoys_bed <- file.path(out_dir, "decoys.bed")
@@ -287,6 +301,22 @@ setnames(bed, "name", "decoyID")
 # cryptics use the same key; site_class says which class a row belongs to.
 bed[, decoyID := paste0(decoyID, "_", start)]
 
+# The re-scored cryptic file must be the re-score of the CURRENT
+# cryptics_supported.bed. A re-score of an earlier support definition has the
+# same layout and would otherwise pass through silently.
+if (file.exists(cryptics_supported_bed)) {
+  cur_ids <- fread(cryptics_supported_bed, sep = "\t", header = FALSE,
+                   col.names = site_cols)[, paste0(name, "_", start)]
+  got_ids <- bed[site_class == "cryptic_supported", decoyID]
+  if (!setequal(cur_ids, got_ids)) {
+    stop(
+      splicescores_beds[["cryptic_supported"]], " has ", length(got_ids),
+      " sites but ", cryptics_supported_bed, " has ", length(cur_ids),
+      "; re-score the current cryptics_supported.bed before knitting Part 3."
+    )
+  }
+}
+
 # Decoys are CLIP-supported at the site and cryptics are not, so the classes
 # cannot share an ID. A shared one means one of the inputs is stale.
 shared_ids <- intersect(
@@ -316,6 +346,31 @@ cat(
   "Rows:", nrow(bed), " Unique decoyID:", uniqueN(bed$decoyID),
   " Duplicates:", sum(duplicated(bed$decoyID)), "\n"
 )
+```
+
+## Remove annotated alternative 5' splice sites
+
+A site that sits exactly on a donor of a Vast-DB `HsaALTD` (Alt5) event is a known, used 5' splice site rather than a decoy or cryptic, so it is removed from both classes. The match is exact, on the same strand: the SpliceAI site at BED start + 1 is the donor coordinate. On `results/exonic_splice_sites.bed`, 45,088 sites match ALTD donors at offset 0, against at most 730 at ±1–2 nt. The filtered sets are written as the final BEDs.
+
+```{r remove-altd}
+altd_keys <- altd_donors[, paste(chr, donor, strand)]
+bed[, is_altd := paste(chr, start + 1L, strand) %chin% altd_keys]
+cat("Annotated alternative 5' splice sites removed:\n")
+print(bed[, .(sites = .N, altd = sum(is_altd), kept = sum(!is_altd)), by = site_class])
+bed <- bed[is_altd == FALSE][, is_altd := NULL]
+
+final_beds <- c(
+  decoy = file.path(out_dir, "decoys_final.bed"),
+  cryptic_supported = file.path(out_dir, "cryptics_supported_final.bed")
+)
+for (cls in names(final_beds)) {
+  x <- bed[site_class == cls, .(
+    chr, start, end, name = sub("_[0-9]+$", "", decoyID), SpliceAI_score, strand,
+    rbpnet, prpf8, smb, n_categories
+  )]
+  fwrite(x, final_beds[[cls]], sep = "\t", col.names = FALSE, quote = FALSE, eol = "\n")
+  cat("Wrote", final_beds[[cls]], " rows:", nrow(x), "\n")
+}
 ```
 
 ## Overlap sites with introns (shortest intron per site)
@@ -451,9 +506,9 @@ cat("Wrote:\n ", intron_bed, "\n ", decoy_bed, "\n ", canonical_bed, "\n")
 
 ---
 
-## Between Part 3 and Part 4 — bash intermediate (phastCons + MaxEnt)
+## Between Part 3 and Part 4 — bash intermediate (phastCons + MaxEnt + GC)
 
-#### **Stop here after knitting Part 3** then run the following in the shell from `hnRNPH1_IR_MAF` (adjust paths if needed).
+#### **Stop here after knitting Part 3** then run the following in the shell from `hnRNPH1_IR_MAF` (adjust paths if needed). The BEDs hold both decoys and supported cryptics, so each command runs once and both classes get the same features.
 
 ### phastCons (mean over each **intron** segment)
 
@@ -471,6 +526,10 @@ cat("Wrote:\n ", intron_bed, "\n ", decoy_bed, "\n ", canonical_bed, "\n")
 
 #### Scores are appended as the **last column** of each output BED (column 4 = `decoyID`).
 
+### GC content (intron and 49 nt site window)
+
+#### `$ bash scripts/extract_gc_content.sh ../../reference/genomes/Gencode49/GRCh38.primary_assembly.genome.fa results/intron_segments_for_phastcons.bed results/decoy_coords_for_maxent.bed > results/gc_by_decoy.tsv`
+
 # Part 4 — Reload step-1 table, merge scores, plot, final export
 
 ```{r paths-part2}
@@ -480,7 +539,9 @@ ph100_tsv <- file.path(out_dir, "phastcons100_by_decoy.tsv")
 ph470_tsv <- file.path(out_dir, "phastcons470_by_decoy.tsv")
 maxent_decoy_bed <- file.path(out_dir, "maxent_decoy.bed")
 maxent_canonical_bed <- file.path(out_dir, "maxent_canonical.bed")
+gc_tsv <- file.path(out_dir, "gc_by_decoy.tsv")
 final_tsv <- file.path(out_dir, "decoy_intron_features_final.tsv")
+class_summary_tsv <- file.path(out_dir, "decoy_vs_cryptic_class_summary.tsv")
 ```
 
 ```{r reload-step1}
@@ -533,6 +594,16 @@ if (file.exists(maxent_canonical_bed)) {
 }
 ```
 
+```{r merge-gc}
+if (file.exists(gc_tsv)) {
+  gc <- fread(gc_tsv, sep = "\t", header = TRUE)
+  merged <- merge(merged, gc, by = "decoyID", all.x = TRUE)
+} else {
+  merged[, `:=`(intron_gc = NA_real_, site_gc_49nt = NA_real_)]
+  cat("Note: missing ", gc_tsv, " — GC content not merged.\n")
+}
+```
+
 ## PSI count (columns with value >= 10)
 
 ```{r psi-count-v3}
@@ -545,7 +616,8 @@ meta_cols <- c(
 feat <- c(
   "decoy_coord_1based", "decoy_distance_from_canonical_5ss",
   "start", "end", "decoyID", "SpliceAI_score", "strand",
-  "MaxEnt_decoy", "MaxEnt_canonical", "phastCons470_mean", "phastCons100_mean"
+  "MaxEnt_decoy", "MaxEnt_canonical", "phastCons470_mean", "phastCons100_mean",
+  "intron_gc", "site_gc_49nt"
 )
 psi_cols <- setdiff(names(merged), c(meta_cols, feat, "chr.1"))
 psi_num <- psi_cols[sapply(merged[, ..psi_cols], is.numeric)]
@@ -690,6 +762,7 @@ pref <- c(
   "decoy_coord_1based", "decoy_distance_from_canonical_5ss",
   "MaxEnt_decoy", "MaxEnt_canonical",
   "phastCons470_mean", "phastCons100_mean",
+  "intron_length", "intron_gc", "site_gc_49nt",
   "psi_count_ge10", "psi_count_ge10_brain", "brain_retained",
   "mESC_IRratio_mean", "mESC_IR_overlap_bp",
   "mESC_lift_Chr", "mESC_lift_Start", "mESC_lift_End",
@@ -858,7 +931,7 @@ ggsave(file.path("../figures/phastCons470_vs_all_tissue_psi.pdf"), p_all_ph470, 
 
 ## Plot: supported cryptics — phastCons vs ALL Vast-DB tissues with PSI > 10
 
-The same two plots as above, for the supported cryptics: sites with no RBPnet, PRPF8 or SmB support at the site, whose intron's canonical 5' splice site is bound by PRPF8 or SmB.
+The same two plots as above, for the supported cryptics: sites with no RBPnet, PRPF8 or SmB support at the site, whose intron's canonical 5' splice site is supported by RBPnet, PRPF8 or SmB.
 
 ```{r plot-phastcons-all-tissue-psi-cryptic}
 plot_df_cryp <- merged[site_class == "cryptic_supported" & !is.na(psi_count_ge10) & !is.na(GENE)]
@@ -956,7 +1029,74 @@ fwrite(export_dt[, ..export_cols], candidate_export_tsv, sep = "\t", quote = FAL
 cat("Wrote candidate export:", candidate_export_tsv, " rows:", nrow(export_dt), "\n")
 ```
 
+## Decoys vs supported cryptics: per-class summary and comparison figure
+
+Every feature is computed the same way for both classes, so they can be compared directly. The summary gives n, median and IQR per class; the figure shows the distributions side by side.
+
+```{r class-comparison}
+compare_feats <- c(
+  "psi_count_ge10", "psi_count_ge10_brain", "intron_length", "intron_gc", "site_gc_49nt",
+  "SpliceAI_score", "decoy_distance_from_canonical_5ss",
+  "MaxEnt_decoy", "MaxEnt_canonical", "phastCons100_mean", "phastCons470_mean"
+)
+compare_feats <- compare_feats[compare_feats %in% names(merged)]
+
+class_summary <- merged[, .(
+  n = .N,
+  brain_retained_n = sum(brain_retained, na.rm = TRUE)
+), by = site_class]
+for (f in compare_feats) {
+  q <- merged[, .(
+    med = median(get(f), na.rm = TRUE),
+    q1 = quantile(get(f), 0.25, na.rm = TRUE, names = FALSE),
+    q3 = quantile(get(f), 0.75, na.rm = TRUE, names = FALSE),
+    n_na = sum(is.na(get(f)))
+  ), by = site_class]
+  setnames(q, c("med", "q1", "q3", "n_na"), paste0(f, c("_median", "_q1", "_q3", "_na")))
+  class_summary <- merge(class_summary, q, by = "site_class")
+}
+fwrite(class_summary, class_summary_tsv, sep = "\t", quote = FALSE)
+cat("Wrote per-class summary:", class_summary_tsv, "\n")
+print(class_summary[, c("site_class", "n", grep("_median$", names(class_summary), value = TRUE)), with = FALSE])
+
+plot_feats <- c(
+  psi_count_ge10 = "Tissues with PSI > 10",
+  intron_length = "Intron length (nt, log10)",
+  intron_gc = "Intron GC fraction",
+  site_gc_49nt = "Site GC fraction (49 nt)",
+  SpliceAI_score = "Local SpliceAI donor score",
+  MaxEnt_decoy = "MaxEnt (site)",
+  MaxEnt_canonical = "MaxEnt (canonical 5'SS)",
+  phastCons100_mean = "phastCons 100-way (intron)",
+  phastCons470_mean = "phastCons 470-way (intron)"
+)
+plot_feats <- plot_feats[names(plot_feats) %in% names(merged)]
+long <- melt(
+  cbind(merged[, .(decoyID, site_class)],
+        merged[, lapply(.SD, as.numeric), .SDcols = names(plot_feats)]),
+  id.vars = c("decoyID", "site_class"), variable.name = "feature", value.name = "value"
+)
+long <- long[!is.na(value)]
+long[feature == "intron_length", value := log10(value)]
+long[, feature := factor(plot_feats[as.character(feature)], levels = plot_feats)]
+long[, site_class := factor(site_class, levels = c("decoy", "cryptic_supported"),
+                            labels = c("Decoys", "Supported cryptics"))]
+
+p_class <- ggplot(long, aes(x = site_class, y = value, fill = site_class)) +
+  geom_violin(colour = NA, alpha = 0.4, scale = "width") +
+  geom_boxplot(width = 0.18, outlier.size = 0.3, fill = "white") +
+  facet_wrap(~ feature, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = c("Decoys" = "#B2182B", "Supported cryptics" = "#2166AC")) +
+  labs(x = NULL, y = NULL, title = "Decoys vs supported cryptics") +
+  theme_bw() +
+  theme(legend.position = "none", strip.text = element_text(size = 8))
+print(p_class)
+dir.create("../figures", showWarnings = FALSE, recursive = TRUE)
+ggsave("../figures/decoy_vs_cryptic_class_comparison.pdf", p_class, width = 9, height = 9)
+```
+
 ```{r write-final-v3}
 fwrite(merged, final_tsv, sep = "\t", quote = FALSE)
-cat("Final table:", final_tsv, "\n")
+cat("Final table:", final_tsv, " rows:", nrow(merged), " (",
+    paste(merged[, .N, by = site_class][, paste0(site_class, "=", N)], collapse = ", "), ")\n")
 ```

@@ -1,0 +1,21 @@
+# Environment for scripts/SpliceAI_Inference.py (and scripts/slurm_rescore_cryptics.sh).
+# Pinned to the local spliceai-env that scored decoys_splicescores.bed, so both
+# site classes are scored with the same software.
+#   conda env create -f env/spliceai_environment.yml
+# setuptools stays < 81: SpliceAI_Inference.py imports pkg_resources.
+name: spliceai-env
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.8
+  - bedtools=2.30.0
+  - pip
+  - pip:
+      - tensorflow==2.13.1
+      - keras==2.13.1
+      - spliceai==1.3.1
+      - numpy==1.24.3
+      - h5py==3.11.0
+      - pyfaidx==0.8.1.4
+      - setuptools==70.3.0
