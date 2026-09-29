@@ -4,14 +4,15 @@ output: html_document
 ---
 
 <!--
-  Four-part workflow, with a bash step after each of the first three:
+  Five-part workflow, with a bash step after each of the first three and a cluster step before Part 5:
   Part 1: Load cryptic_sites.bed (deep-intronic SpliceAI sites with no RBPnet/PRPF8/SmB support at the site), overlap with Vast-DB PSI Table introns, find each intron's canonical 5' splice site in Canonical_splice_sites.bed, and write those windows with the cryptic ID in column 4.
   After Part 1: Intersect the windows with the RBPnet, PRPF8 and SmB peaks (intersect_spliceai_support.sh) -> canonical_supported_sites.bed.
   Part 2: Keep the cryptic sites whose canonical 5' splice site is supported -> cryptics_supported.bed.
   After Part 2: Re-score decoys.bed and cryptics_supported.bed with SpliceAI_Inference.py (local 49 nt donor score).
   Part 3: Load both re-scored BEDs as one table (site_class = decoy / cryptic_supported), filter to local SpliceAI >= 0.1, remove annotated alternative 5' splice sites (Vast-DB HsaALTD donors) and write the final BEDs, overlap with PSI Table introns, extract strand-aware distance from the canonical 5' splice site, write step1 TSV + BEDs for bash processing.
   After Part 3: Run extract_phastcons_scores.sh to calculate average phastCons scores over intron segments harboring each site. Use run_maxentscan_canonical.sh and run_maxentscan_decoy.sh to calculate MaxEntScan score for both the site and its canonical 5' splice site in bash. Run extract_gc_content.sh for intron and 49 nt site GC. These run once on the combined BEDs, so decoys and cryptics get the same features.
-  Part 4: Reload step1 table, merge scores, plot, write the final feature table (decoys and supported cryptics, same columns) and a per-class summary.
+  Part 4: Reload step1 table, merge scores, plot, write a per-class summary.
+  Part 5: Merge Recount/Snaptron junction support per site (results/recount_*_junctions.tsv, from scripts/slurm_query_recount.sh; >= 5 reads, exact donor boundary) and write the final feature table.
 
   Every splice-site BED here is 10 columns: BED6 + rbpnet/prpf8/smb support
   counts + n_categories. After the re-score by scripts/SpliceAI_Inference.py,
@@ -100,10 +101,14 @@ psi[, intron_end := as.integer(range_parts[[2]])]
 psi <- psi[!is.na(chr) & !is.na(intron_start) & !is.na(intron_end)]
 cat("PSI rows after filters:", nrow(psi), "\n")
 
-# The PSI table carries no strand; each site's own strand orients its intron.
+# Intron strand is the last character of FullCO. Overlaps with sites are stranded, so a site
+# is never assigned to an intron of an antisense gene.
+psi[, intron_strand := sub(".*:", "", FullCO)]
+psi <- psi[intron_strand %in% c("+", "-")]
 psi_gr <- GRanges(
   seqnames = psi$chr,
-  ranges = IRanges(start = psi$intron_start, end = psi$intron_end)
+  ranges = IRanges(start = psi$intron_start, end = psi$intron_end),
+  strand = psi$intron_strand
 )
 ```
 
@@ -146,7 +151,7 @@ canon_gr <- GRanges(canon$chr, IRanges(canon$start + 1L, canon$end), strand = ca
 cryptic_gr <- GRanges(
   cryptic$chr, IRanges(cryptic$start + 1L, cryptic$end), strand = cryptic$strand
 )
-ci <- findOverlaps(cryptic_gr, psi_gr, ignore.strand = TRUE)
+ci <- findOverlaps(cryptic_gr, psi_gr, ignore.strand = FALSE)
 
 # One donor per (site, intron). Same strand logic as canonical_coords_for_maxent.bed in Part 3.
 pairs <- unique(data.table(
@@ -301,20 +306,25 @@ setnames(bed, "name", "decoyID")
 # cryptics use the same key; site_class says which class a row belongs to.
 bed[, decoyID := paste0(decoyID, "_", start)]
 
-# The re-scored cryptic file must be the re-score of the CURRENT
-# cryptics_supported.bed. A re-score of an earlier support definition has the
-# same layout and would otherwise pass through silently.
+# The re-scored cryptic file must cover every site in the CURRENT
+# cryptics_supported.bed. Scores are per site, so a re-score of a larger earlier
+# set is reused and restricted to the current sites; a missing site means the
+# re-score is out of date.
 if (file.exists(cryptics_supported_bed)) {
   cur_ids <- fread(cryptics_supported_bed, sep = "\t", header = FALSE,
                    col.names = site_cols)[, paste0(name, "_", start)]
   got_ids <- bed[site_class == "cryptic_supported", decoyID]
-  if (!setequal(cur_ids, got_ids)) {
+  not_scored <- setdiff(cur_ids, got_ids)
+  if (length(not_scored) > 0) {
     stop(
-      splicescores_beds[["cryptic_supported"]], " has ", length(got_ids),
-      " sites but ", cryptics_supported_bed, " has ", length(cur_ids),
-      "; re-score the current cryptics_supported.bed before knitting Part 3."
+      length(not_scored), " sites in ", cryptics_supported_bed, " are not in ",
+      splicescores_beds[["cryptic_supported"]], "; re-score them before knitting Part 3."
     )
   }
+  n_extra <- sum(!got_ids %chin% cur_ids)
+  bed <- bed[site_class != "cryptic_supported" | decoyID %chin% cur_ids]
+  cat("Re-scored cryptics restricted to the current cryptics_supported.bed:",
+      length(got_ids), "->", length(cur_ids), "(", n_extra, "no longer supported )\n")
 }
 
 # Decoys are CLIP-supported at the site and cryptics are not, so the classes
@@ -350,7 +360,7 @@ cat(
 
 ## Remove annotated alternative 5' splice sites
 
-A site that sits exactly on a donor of a Vast-DB `HsaALTD` (Alt5) event is a known, used 5' splice site rather than a decoy or cryptic, so it is removed from both classes. The match is exact, on the same strand: the SpliceAI site at BED start + 1 is the donor coordinate. On `results/exonic_splice_sites.bed`, 45,088 sites match ALTD donors at offset 0, against at most 730 at ±1–2 nt. The filtered sets are written as the final BEDs.
+A site that sits exactly on a donor of a Vast-DB `HsaALTD` (Alt5) event is a known, used 5' splice site rather than a decoy or cryptic, so it is removed from both classes. The match is exact, on the same strand: the SpliceAI site at BED start + 1 is the donor coordinate. On `results/exonic_splice_sites.bed`, 45,088 sites match ALTD donors at offset 0, against at most 730 at ±1–2 nt.
 
 ```{r remove-altd}
 altd_keys <- altd_donors[, paste(chr, donor, strand)]
@@ -358,6 +368,30 @@ bed[, is_altd := paste(chr, start + 1L, strand) %chin% altd_keys]
 cat("Annotated alternative 5' splice sites removed:\n")
 print(bed[, .(sites = .N, altd = sum(is_altd), kept = sum(!is_altd)), by = site_class])
 bed <- bed[is_altd == FALSE][, is_altd := NULL]
+```
+
+## Remove sites near canonical 3' splice sites
+
+The canonical-window filter upstream excludes sites within 50 nt of a canonical 5' splice site only. Sites 0–100 nt upstream of a canonical 3' splice site are removed here, from both classes: that stretch holds the branch point and polypyrimidine tract, where SmB and PRPF8 crosslink as part of the spliceosome rather than at a decoy, and it contains the `AG|GT` sites at distance 0 where the downstream exon begins with a donor-like `GT`. The window is taken from every Vast-DB intron on the site's strand, as the donor windows are, not only the intron a site is later assigned to.
+
+```{r remove-near-3ss}
+NEAR_3SS_NT <- 100L
+# 3' splice site = last intronic base: intron_end on +, intron_start on -. Window covers
+# distances 0..NEAR_3SS_NT upstream of it along the transcript.
+acc_gr <- GRanges(
+  seqnames = psi$chr,
+  ranges = IRanges(
+    start = ifelse(psi$intron_strand == "+", psi$intron_end - NEAR_3SS_NT, psi$intron_start),
+    end   = ifelse(psi$intron_strand == "+", psi$intron_end, psi$intron_start + NEAR_3SS_NT)
+  ),
+  strand = psi$intron_strand
+)
+site_gr <- GRanges(bed$chr, IRanges(bed$start + 1L, width = 1L), strand = bed$strand)
+bed[, near_3ss := overlapsAny(site_gr, acc_gr, ignore.strand = FALSE)]
+cat("Sites within", NEAR_3SS_NT, "nt upstream of a canonical 3' splice site, removed:\n")
+print(bed[, .(sites = .N, near_3ss = sum(near_3ss), kept = sum(!near_3ss)), by = site_class])
+if (bed[decoyID == "HNRNPH1_179620582", near_3ss]) stop("HNRNPH1_179620582 fell in a 3' splice-site window.")
+bed <- bed[near_3ss == FALSE][, near_3ss := NULL]
 
 final_beds <- c(
   decoy = file.path(out_dir, "decoys_final.bed"),
@@ -381,7 +415,7 @@ decoy_gr <- GRanges(
   ranges = IRanges(start = bed$start + 1, end = bed$end),
   strand = bed$strand
 )
-hits <- findOverlaps(decoy_gr, psi_gr, ignore.strand = TRUE)
+hits <- findOverlaps(decoy_gr, psi_gr, ignore.strand = FALSE)
 cat("Overlap pairs:", length(hits), "\n")
 
 bed_hit <- bed[queryHits(hits)]
@@ -1071,28 +1105,108 @@ plot_feats <- c(
   phastCons470_mean = "phastCons 470-way (intron)"
 )
 plot_feats <- plot_feats[names(plot_feats) %in% names(merged)]
-long <- melt(
-  cbind(merged[, .(decoyID, site_class)],
-        merged[, lapply(.SD, as.numeric), .SDcols = names(plot_feats)]),
-  id.vars = c("decoyID", "site_class"), variable.name = "feature", value.name = "value"
-)
-long <- long[!is.na(value)]
-long[feature == "intron_length", value := log10(value)]
-long[, feature := factor(plot_feats[as.character(feature)], levels = plot_feats)]
-long[, site_class := factor(site_class, levels = c("decoy", "cryptic_supported"),
-                            labels = c("Decoys", "Supported cryptics"))]
 
-p_class <- ggplot(long, aes(x = site_class, y = value, fill = site_class)) +
-  geom_violin(colour = NA, alpha = 0.4, scale = "width") +
-  geom_boxplot(width = 0.18, outlier.size = 0.3, fill = "white") +
-  facet_wrap(~ feature, scales = "free_y", ncol = 3) +
-  scale_fill_manual(values = c("Decoys" = "#B2182B", "Supported cryptics" = "#2166AC")) +
-  labs(x = NULL, y = NULL, title = "Decoys vs supported cryptics") +
-  theme_bw() +
-  theme(legend.position = "none", strip.text = element_text(size = 8))
+plot_class_comparison <- function(dt, title) {
+  long <- melt(
+    cbind(dt[, .(decoyID, site_class)],
+          dt[, lapply(.SD, as.numeric), .SDcols = names(plot_feats)]),
+    id.vars = c("decoyID", "site_class"), variable.name = "feature", value.name = "value"
+  )
+  long <- long[!is.na(value)]
+  long[feature == "intron_length", value := log10(value)]
+  long[, feature := factor(plot_feats[as.character(feature)], levels = plot_feats)]
+  n_by <- dt[, .N, by = site_class]
+  lab <- c(decoy = sprintf("Decoys\n(n = %s)", format(n_by[site_class == "decoy", N], big.mark = ",")),
+           cryptic_supported = sprintf("Supported cryptics\n(n = %s)", format(n_by[site_class == "cryptic_supported", N], big.mark = ",")))
+  long[, site_class := factor(lab[as.character(site_class)], levels = lab)]
+  ggplot(long, aes(x = site_class, y = value, fill = site_class)) +
+    geom_violin(colour = NA, alpha = 0.4, scale = "width") +
+    geom_boxplot(width = 0.18, outlier.size = 0.3, fill = "white") +
+    facet_wrap(~ feature, scales = "free_y", ncol = 3) +
+    scale_fill_manual(values = setNames(c("#B2182B", "#2166AC"), lab)) +
+    labs(x = NULL, y = NULL, title = title) +
+    theme_bw() +
+    theme(legend.position = "none", strip.text = element_text(size = 8))
+}
+
+p_class <- plot_class_comparison(merged, "Decoys vs supported cryptics")
 print(p_class)
 dir.create("../figures", showWarnings = FALSE, recursive = TRUE)
 ggsave("../figures/decoy_vs_cryptic_class_comparison.pdf", p_class, width = 9, height = 9)
+```
+
+## MaxEntScan thresholds
+
+Both classes filtered to a site MaxEnt score of at least 8, 9 or 10; the class comparison figure is redrawn on the filtered sites and the counts are tabulated.
+
+```{r maxent-thresholds}
+maxent_thresholds <- c(8, 9, 10)
+maxent_counts <- rbindlist(lapply(maxent_thresholds, function(thr) {
+  keep <- merged[!is.na(MaxEnt_decoy) & MaxEnt_decoy >= thr]
+  p <- plot_class_comparison(keep, sprintf("Decoys vs supported cryptics, site MaxEnt >= %d", thr))
+  ggsave(sprintf("../figures/decoy_vs_cryptic_class_comparison_maxent%d.pdf", thr), p, width = 9, height = 9)
+  keep[, .(threshold = thr, n = .N,
+           median_tissues_psi10 = as.numeric(median(psi_count_ge10)),
+           hnrnph1_kept = any(decoyID == "HNRNPH1_179620582")), by = site_class]
+}))
+all_counts <- merged[, .(threshold = 0, n = .N, median_tissues_psi10 = as.numeric(median(psi_count_ge10)),
+                         hnrnph1_kept = any(decoyID == "HNRNPH1_179620582")), by = site_class]
+maxent_counts <- rbind(all_counts, maxent_counts)[order(site_class, threshold)]
+print(maxent_counts)
+fwrite(maxent_counts, file.path(out_dir, "maxent_threshold_counts.tsv"), sep = "\t", quote = FALSE)
+```
+
+# Part 5 — Recount junction support
+
+Whether each site is used as a 5' splice site in RNA-seq junction data, from the Snaptron/Recount compilations (`tcgav2`, `srav3h`, `gtexv2`). `scripts/query_recount_junctions.py` (run on the cluster by `scripts/slurm_query_recount.sh`) reports every junction whose boundary lies within 5 bp of a site, annotated or not. Here a junction counts as using the site as its 5' splice site when its donor boundary is the first intronic base after the site and it has at least 5 reads. A site with an unannotated junction is a cryptic 5' splice site that is used in some samples; an annotated junction means the site is a known donor. No site is removed at this step; the columns are added to the feature table so the classes can be compared.
+
+```{r recount-support}
+# A junction supports a site as a 5' splice site when its donor-side boundary is the first intronic base
+# after the site (junction start = site + 1 on +, junction end = site - 1 on -) and it has at least
+# MIN_READS reads summed over the compilation's samples.
+MIN_READS <- 5L
+recount_files <- Sys.glob(file.path(out_dir, "recount_*_junctions.tsv"))
+recount_cols <- c("recount_compilations", "recount_5ss_junctions", "recount_annotated", "recount_unannotated",
+                  "recount_unannotated_samples", "recount_unannotated_reads")
+if (length(recount_files) == 0) {
+  cat("Note: no results/recount_*_junctions.tsv found - Recount junction support not merged.\n",
+      "  Generate with scripts/slurm_query_recount.sh (see README, Recount junction support).\n")
+  merged[, (recount_cols) := list(0L, 0L, FALSE, FALSE, 0L, 0L)]
+  merged[, recount_support := NA_character_]
+} else {
+  rj <- rbindlist(lapply(recount_files, fread, sep = "\t",
+                         select = c("compilation", "site_id", "strand", "snaptron_id", "annotated",
+                                    "samples_count", "coverage_sum", "start_offset", "end_offset")))
+  rj[, donor_offset := fifelse(strand == "+", start_offset, -end_offset)]
+  cat("Recount compilations:", paste(sort(unique(rj$compilation)), collapse = ", "), " junction rows:", nrow(rj), "\n")
+  cat("Donor-side offset of junction boundaries (1 = first intronic base after the site):\n")
+  print(rj[donor_offset %between% c(-5, 5), .N, by = donor_offset][order(donor_offset)])
+  use <- rj[donor_offset == 1L & coverage_sum >= MIN_READS]
+  rc_site <- use[, .(
+    recount_compilations = uniqueN(compilation),
+    recount_5ss_junctions = .N,
+    recount_annotated = any(annotated == 1L),
+    recount_unannotated = any(annotated == 0L),
+    recount_unannotated_samples = as.integer(max(c(0L, samples_count[annotated == 0L]))),
+    recount_unannotated_reads = as.integer(max(c(0L, coverage_sum[annotated == 0L])))
+  ), by = .(decoyID = site_id)]
+  merged <- merge(merged, rc_site, by = "decoyID", all.x = TRUE)
+  merged[is.na(recount_compilations), (recount_cols) := list(0L, 0L, FALSE, FALSE, 0L, 0L)]
+  # annotated: an annotated junction uses the site as its donor (a known donor in some annotation);
+  # unannotated_only: only unannotated junctions do (a cryptic donor used in RNA-seq); no_junction: neither.
+  merged[, recount_support := fifelse(recount_annotated, "annotated",
+                               fifelse(recount_unannotated, "unannotated_only", "no_junction"))]
+  cat("\nRecount 5'SS junction support by site class (>=", MIN_READS, "reads, exact donor boundary):\n")
+  tab <- dcast(merged[, .N, by = .(site_class, recount_support)], site_class ~ recount_support, value.var = "N", fill = 0L)
+  print(tab)
+  print(merged[, .(annotated = mean(recount_support == "annotated"), unannotated_only = mean(recount_support == "unannotated_only"),
+                   no_junction = mean(recount_support == "no_junction")), by = site_class])
+  cat("\nUnannotated-only sites by number of compilations supporting them:\n")
+  print(merged[recount_support == "unannotated_only", .N, by = .(site_class, recount_compilations)][order(site_class, recount_compilations)])
+  cat("\nHNRNPH1_179620582:\n")
+  print(merged[decoyID == "HNRNPH1_179620582", .(recount_support, recount_compilations, recount_5ss_junctions,
+                                                   recount_unannotated_samples, recount_unannotated_reads)])
+}
 ```
 
 ```{r write-final-v3}

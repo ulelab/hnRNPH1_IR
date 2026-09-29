@@ -1,0 +1,249 @@
+---
+title: "Intron summary table: all Vast-DB introns classified by decoy and cryptic content"
+output: html_document
+params:
+  fasta: "../../../reference/genomes/Gencode49/GRCh38.primary_assembly.genome.fa"
+---
+
+<!--
+  Builds one row per Vast-DB HsaIN intron from PSI_TABLE-hg38.tab.gz, marks the
+  introns that hold decoys and/or supported cryptics from
+  results/decoy_intron_features_final.tsv, and adds intron length, tissue
+  counts with PSI >= 10, and GC content of the intron relative to its flanking
+  exons. Run after Part 4 of compile_decoy_intron_data.Rmd.
+
+  out: results/intron_summary_table.tsv
+       figures/intron_class_comparison.pdf
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r load-libraries}
+library(data.table)
+library(ggplot2)
+```
+
+```{r paths}
+psi_table <- "../reference/PSI_TABLE-hg38.tab.gz"
+features_tsv <- "../results/decoy_intron_features_final.tsv"
+sample_groups_csv <- "../data/vastdb_Sample_Groups.csv"
+fasta <- params$fasta
+out_tsv <- "../results/intron_summary_table.tsv"
+fig_dir <- "../figures"
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+
+if (!file.exists(fasta)) stop("Genome FASTA not found: ", fasta, " (set params$fasta)")
+if (!file.exists(paste0(fasta, ".fai"))) stop("FASTA index not found: ", fasta, ".fai")
+if (Sys.which("bedtools") == "") stop("bedtools not on PATH")
+
+HNRNPH1_ID <- "HNRNPH1_179620582"
+CLASS_LEVELS <- c("none", "decoy", "cryptic", "both")
+CLASS_LABEL <- c(none = "All other introns", decoy = "Decoy", cryptic = "Supported cryptic", both = "Both")
+CLASS_COLOR <- c(none = "grey60", decoy = "#B2182B", cryptic = "#2166AC", both = "#762A83")
+```
+
+## All Vast-DB introns
+
+`COORD` gives the intron; `FullCO` gives the two flanking exons in transcript order (`chr:up_start-up_end=down_start-down_end:strand`), so the upstream exon is the first pair on both strands.
+
+```{r load-introns}
+psi <- fread(psi_table, sep = "\t", header = TRUE)
+psi <- psi[grepl("^HsaIN", EVENT)]
+q_cols <- grep("-Q$", names(psi), value = TRUE)
+if (length(q_cols) > 0) psi[, (q_cols) := NULL]
+
+coord <- tstrsplit(psi$COORD, "[:-]")
+psi[, `:=`(chr = coord[[1]], intron_start = as.integer(coord[[2]]), intron_end = as.integer(coord[[3]]))]
+psi[, intron_length := intron_end - intron_start + 1L]
+
+# Strand is the last character; it must come off before splitting on "-".
+psi[, strand := sub(".*:", "", FullCO)]
+fc <- tstrsplit(sub(":[+-]$", "", psi$FullCO), "[:=-]")
+psi[, `:=`(
+  up_exon_start = as.integer(fc[[2]]), up_exon_end = as.integer(fc[[3]]),
+  down_exon_start = as.integer(fc[[4]]), down_exon_end = as.integer(fc[[5]])
+)]
+psi <- psi[!is.na(intron_start) & !is.na(up_exon_start) & !is.na(down_exon_start) & strand %in% c("+", "-")]
+psi[, up_exon_length := up_exon_end - up_exon_start + 1L]
+psi[, down_exon_length := down_exon_end - down_exon_start + 1L]
+
+meta_cols <- c("GENE", "EVENT", "COORD", "LENGTH", "FullCO", "COMPLEX", "chr", "intron_start", "intron_end",
+               "intron_length", "up_exon_start", "up_exon_end", "down_exon_start", "down_exon_end", "strand",
+               "up_exon_length", "down_exon_length")
+psi_cols <- setdiff(names(psi), meta_cols)
+psi_cols <- psi_cols[sapply(psi[, ..psi_cols], is.numeric)]
+psi[, psi_count_ge10 := rowSums(.SD >= 10, na.rm = TRUE), .SDcols = psi_cols]
+psi[, psi_n_measured := rowSums(!is.na(.SD)), .SDcols = psi_cols]
+
+sample_groups <- fread(sample_groups_csv)
+brain_cols <- intersect(sample_groups[sample_group == "Brain", Sample], psi_cols)
+psi[, psi_count_ge10_brain := rowSums(.SD >= 10, na.rm = TRUE), .SDcols = brain_cols]
+
+cat("Vast-DB introns:", nrow(psi), "  tissue columns:", length(psi_cols), "  brain columns:", length(brain_cols), "\n")
+stopifnot(!anyDuplicated(psi$EVENT))
+```
+
+## Mark introns that hold decoys and supported cryptics
+
+Each site in the feature table is assigned to the shortest Vast-DB intron overlapping it (`EVENT`). Site IDs are `GENE_start`.
+
+```{r mark-sites}
+feat <- fread(features_tsv, sep = "\t", header = TRUE, select = c("decoyID", "site_class", "EVENT", "start"))
+stopifnot(all(feat$EVENT %in% psi$EVENT))
+
+per_intron <- feat[, .(
+  n_decoys = sum(site_class == "decoy"),
+  n_cryptics = sum(site_class == "cryptic_supported"),
+  decoy_ids = paste(sort(decoyID[site_class == "decoy"]), collapse = ";"),
+  cryptic_ids = paste(sort(decoyID[site_class == "cryptic_supported"]), collapse = ";")
+), by = EVENT]
+
+intron <- merge(psi[, ..meta_cols][, c(.SD, list(psi_count_ge10 = psi$psi_count_ge10,
+                                                   psi_count_ge10_brain = psi$psi_count_ge10_brain,
+                                                   psi_n_measured = psi$psi_n_measured))],
+                per_intron, by = "EVENT", all.x = TRUE)
+intron[is.na(n_decoys), `:=`(n_decoys = 0L, n_cryptics = 0L, decoy_ids = "", cryptic_ids = "")]
+intron[, intron_class := fifelse(n_decoys > 0 & n_cryptics > 0, "both",
+                         fifelse(n_decoys > 0, "decoy",
+                         fifelse(n_cryptics > 0, "cryptic", "none")))]
+intron[, intron_class := factor(intron_class, levels = CLASS_LEVELS)]
+
+class_counts <- intron[, .(n = .N), by = intron_class][order(intron_class)]
+class_counts[, pct_of_all_introns := round(100 * n / nrow(intron), 2)]
+cat("Introns by class (of", nrow(intron), "Vast-DB introns):\n"); print(class_counts)
+with_site <- intron[intron_class != "none", .N]
+cat(sprintf("\nIntrons holding at least one site: %d (%.2f%%); of these, %.1f%% decoy only, %.1f%% cryptic only, %.1f%% both\n",
+  with_site, 100 * with_site / nrow(intron),
+  100 * class_counts[intron_class == "decoy", n] / with_site,
+  100 * class_counts[intron_class == "cryptic", n] / with_site,
+  100 * class_counts[intron_class == "both", n] / with_site))
+cat(sprintf("Of the %d introns with a decoy, %.1f%% also hold a supported cryptic; of the %d with a cryptic, %.1f%% also hold a decoy\n",
+  intron[n_decoys > 0, .N], 100 * class_counts[intron_class == "both", n] / intron[n_decoys > 0, .N],
+  intron[n_cryptics > 0, .N], 100 * class_counts[intron_class == "both", n] / intron[n_cryptics > 0, .N]))
+fwrite(class_counts, "../results/intron_class_counts.tsv", sep = "\t", quote = FALSE)
+cat("\nSites per intron (rows = decoys, columns = cryptics):\n")
+print(table(decoys = intron$n_decoys, cryptics = intron$n_cryptics))
+cat("\nSites in the feature table:", nrow(feat), " assigned to", nrow(per_intron), "introns\n")
+
+hn_event <- feat[decoyID == HNRNPH1_ID, EVENT]
+stopifnot(length(hn_event) == 1)
+cat("\nHNRNPH1 intron:", hn_event, "\n")
+print(intron[EVENT == hn_event, .(GENE, COORD, strand, intron_length, intron_class, n_decoys, n_cryptics, decoy_ids, cryptic_ids, psi_count_ge10)])
+```
+
+## GC content: intron relative to flanking exons
+
+`bedtools nuc` on the intron and on each flanking exon. `exon_gc` is the length-weighted GC of the two exons together; `gc_ratio` is `intron_gc / exon_gc`.
+
+```{r gc-content}
+tmp <- tempfile("gc_")
+dir.create(tmp)
+write_bed <- function(dt, start1, end1, path) {
+  fwrite(dt[, .(chr, get(start1) - 1L, get(end1), EVENT, 0L, strand)], path,
+         sep = "\t", col.names = FALSE, quote = FALSE, eol = "\n")
+}
+write_bed(intron, "intron_start", "intron_end", file.path(tmp, "intron.bed"))
+write_bed(intron, "up_exon_start", "up_exon_end", file.path(tmp, "up.bed"))
+write_bed(intron, "down_exon_start", "down_exon_end", file.path(tmp, "down.bed"))
+
+# bedtools nuc on BED6 appends: 7 pct_at, 8 pct_gc, 9 num_A, 10 num_C, 11 num_G, 12 num_T, 13 num_N, 14 num_oth, 15 seq_len
+nuc <- function(bed) {
+  out <- fread(cmd = paste("bedtools nuc -fi", shQuote(fasta), "-bed", shQuote(bed)), sep = "\t", header = TRUE)
+  setnames(out, c("chr", "start", "end", "EVENT", "score", "strand", "pct_at", "pct_gc",
+                  "num_A", "num_C", "num_G", "num_T", "num_N", "num_oth", "seq_len"))
+  out[, .(EVENT, gc = num_C + num_G, len = seq_len - num_N)]
+}
+gi <- nuc(file.path(tmp, "intron.bed")); gu <- nuc(file.path(tmp, "up.bed")); gd <- nuc(file.path(tmp, "down.bed"))
+stopifnot(nrow(gi) == nrow(intron), nrow(gu) == nrow(intron), nrow(gd) == nrow(intron))
+gc <- Reduce(function(a, b) merge(a, b, by = "EVENT"), list(
+  gi[, .(EVENT, intron_gc = gc / len)],
+  gu[, .(EVENT, up_exon_gc = gc / len, up_gc = gc, up_len = len)],
+  gd[, .(EVENT, down_exon_gc = gc / len, down_gc = gc, down_len = len)]
+))
+gc[, exon_gc := (up_gc + down_gc) / (up_len + down_len)]
+gc[, gc_ratio := intron_gc / exon_gc]
+intron <- merge(intron, gc[, .(EVENT, intron_gc, up_exon_gc, down_exon_gc, exon_gc, gc_ratio)], by = "EVENT")
+unlink(tmp, recursive = TRUE)
+
+cat("GC ratio (intron / flanking exons), median by class:\n")
+print(intron[, .(n = .N, median_gc_ratio = median(gc_ratio, na.rm = TRUE)), by = intron_class][order(intron_class)])
+```
+
+## Write the summary table
+
+```{r write-table}
+setcolorder(intron, c("GENE", "EVENT", "COORD", "chr", "intron_start", "intron_end", "strand", "intron_length",
+                      "intron_class", "n_decoys", "n_cryptics", "decoy_ids", "cryptic_ids",
+                      "psi_count_ge10", "psi_count_ge10_brain", "psi_n_measured",
+                      "intron_gc", "exon_gc", "gc_ratio", "up_exon_gc", "down_exon_gc",
+                      "up_exon_start", "up_exon_end", "up_exon_length",
+                      "down_exon_start", "down_exon_end", "down_exon_length"))
+setorder(intron, chr, intron_start)
+fwrite(intron, out_tsv, sep = "\t", quote = FALSE, eol = "\n")
+cat("Wrote", out_tsv, " rows:", nrow(intron), " cols:", ncol(intron), "\n")
+```
+
+## Intron classes compared
+
+Retention (tissues with PSI >= 10), intron length, GC content and GC ratio by intron class, with all other introns as the control. Per-class n, median and IQR are printed; the HNRNPH1 intron 4 is marked.
+
+```{r class-comparison}
+plot_feats <- c(
+  psi_count_ge10 = "Tissues with PSI > 10",
+  psi_count_ge10_brain = "Brain tissues with PSI > 10",
+  intron_length = "Intron length (nt, log10)",
+  intron_gc = "Intron GC fraction",
+  exon_gc = "Flanking-exon GC fraction",
+  gc_ratio = "GC ratio (intron / flanking exons)"
+)
+summary_tbl <- rbindlist(lapply(names(plot_feats), function(f) {
+  intron[, .(feature = f, n = .N,
+             median = as.numeric(median(get(f), na.rm = TRUE)),
+             q1 = as.numeric(quantile(get(f), 0.25, na.rm = TRUE, names = FALSE)),
+             q3 = as.numeric(quantile(get(f), 0.75, na.rm = TRUE, names = FALSE))), by = intron_class]
+}))
+print(dcast(summary_tbl, feature ~ intron_class, value.var = "median"))
+fwrite(summary_tbl, "../results/intron_class_summary.tsv", sep = "\t", quote = FALSE)
+
+long <- melt(intron[, c("EVENT", "intron_class", names(plot_feats)), with = FALSE],
+             id.vars = c("EVENT", "intron_class"), variable.name = "feature", value.name = "value")
+long <- long[!is.na(value)]
+long[feature == "intron_length", value := log10(value)]
+long[, feature := factor(plot_feats[as.character(feature)], levels = plot_feats)]
+long[, class_label := factor(CLASS_LABEL[as.character(intron_class)], levels = CLASS_LABEL)]
+hn <- long[EVENT == hn_event]
+
+p_class <- ggplot(long, aes(x = class_label, y = value, fill = class_label)) +
+  geom_violin(colour = NA, alpha = 0.45, scale = "width") +
+  geom_boxplot(width = 0.16, outlier.size = 0.2, fill = "white") +
+  geom_point(data = hn, shape = 23, size = 3.2, fill = "black", colour = "white") +
+  geom_text(data = hn, label = "HNRNPH1", vjust = -1, size = 2.8, fontface = "bold") +
+  facet_wrap(~ feature, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = setNames(CLASS_COLOR, CLASS_LABEL)) +
+  labs(x = NULL, y = NULL, title = "Vast-DB introns by decoy / supported-cryptic content") +
+  theme_bw() +
+  theme(legend.position = "none", strip.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 25, hjust = 1, size = 8))
+print(p_class)
+ggsave(file.path(fig_dir, "intron_class_comparison.pdf"), p_class, width = 10, height = 7)
+```
+
+```{r retention-violin}
+counts <- intron[, .N, by = intron_class][order(intron_class)]
+xlab <- paste0(CLASS_LABEL[as.character(counts$intron_class)], "\n(n = ", format(counts$N, big.mark = ","), ")")
+hn_row <- intron[EVENT == hn_event]
+p_ret <- ggplot(intron, aes(x = intron_class, y = psi_count_ge10, fill = intron_class)) +
+  geom_violin(colour = NA, alpha = 0.45, scale = "width", cut = 0) +
+  geom_boxplot(width = 0.16, outlier.shape = NA, fill = "white") +
+  geom_point(data = hn_row, shape = 23, size = 3.5, fill = "black", colour = "white") +
+  annotate("text", x = as.integer(hn_row$intron_class), y = hn_row$psi_count_ge10, label = "HNRNPH1",
+           vjust = -1, size = 3, fontface = "bold") +
+  scale_x_discrete(labels = xlab) +
+  scale_fill_manual(values = CLASS_COLOR) +
+  labs(x = NULL, y = "Tissues with PSI > 10", title = "Intron retention by intron class") +
+  theme_bw() + theme(legend.position = "none")
+print(p_ret)
+ggsave(file.path(fig_dir, "intron_class_retention.pdf"), p_ret, width = 7, height = 5)
+```

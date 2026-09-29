@@ -1,0 +1,9 @@
+site_class	threshold	n	median_tissues_psi10	hnrnph1_kept
+cryptic_supported	0	16295	18	FALSE
+cryptic_supported	8	10998	18	FALSE
+cryptic_supported	9	7000	18	FALSE
+cryptic_supported	10	3418	18	FALSE
+decoy	0	5679	20	TRUE
+decoy	8	4768	21	TRUE
+decoy	9	3563	21	TRUE
+decoy	10	2200	22	TRUE

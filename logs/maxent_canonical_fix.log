@@ -1,0 +1,13 @@
+== rerun canonical MaxEnt
+Wrote BED with MaxEnt scores to: results/maxent_canonical.bed
+Columns: original 7 + column 8 = MaxEnt_canonical_score
+== canonical MaxEnt by strand after fix
++ n=12389 mean=8.41 frac<0=0.010
+- n=11829 mean=8.37 frac<0=0.012
+chr5	179620890	179620891	HNRNPH1_179620582	0.256819	-	9.80
+== Part 4 rerun
+Wed Sep 23 14:35:15 BST 2026
+Wed Sep 23 14:35:19 BST 2026
+== notebook rerun
+Wed Sep 23 14:36:38 BST 2026
+DONE

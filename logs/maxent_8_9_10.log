@@ -1,0 +1,42 @@
+== Rmd maxent chunk
+          site_class threshold     n median_tissues_psi10 hnrnph1_kept
+              <char>     <num> <int>                <num>       <lgcl>
+1: cryptic_supported         0 17721                   18        FALSE
+2: cryptic_supported         8 11954                   18        FALSE
+3: cryptic_supported         9  7585                   18        FALSE
+4: cryptic_supported        10  3698                   18        FALSE
+5:             decoy         0  6497                   20         TRUE
+6:             decoy         8  5420                   20         TRUE
+7:             decoy         9  4027                   20         TRUE
+8:             decoy        10  2450                   21         TRUE
+   3698 results/cryptics_supported_final_maxent10.bed
+  11954 results/cryptics_supported_final_maxent8.bed
+   7585 results/cryptics_supported_final_maxent9.bed
+   2450 results/decoys_final_maxent10.bed
+   5420 results/decoys_final_maxent8.bed
+   4027 results/decoys_final_maxent9.bed
+  83570 total
+figures/decoy_vs_cryptic_class_comparison_maxent10.pdf
+figures/decoy_vs_cryptic_class_comparison_maxent8.pdf
+figures/decoy_vs_cryptic_class_comparison_maxent9.pdf
+== notebook
+wrote notebooks/decoy_vs_cryptic_features.ipynb with 14 cells
+Thu Sep 24 15:41:39 BST 2026
+Thu Sep 24 15:42:57 BST 2026
+errors: []
+stderr: []
+0_maxent_threshold_breakdown.tsv
+A_retention_propensity.pdf
+A_retention_propensity.png
+B_effect_sizes.pdf
+B_effect_sizes.png
+B_effect_sizes_by_maxent_group.tsv
+C1_ecdf_tissue_counts.pdf
+C1_ecdf_tissue_counts.png
+C2_competitiveness.pdf
+C2_competitiveness.png
+C3_support_tier.pdf
+C3_support_tier.png
+C4_spearman_correlations.pdf
+C4_spearman_correlations.png
+DONE

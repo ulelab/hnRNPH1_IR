@@ -1,0 +1,9 @@
+group	site_class	n	pct_of_all	median_tissues_psi10	median_site_MaxEnt	frac_site_stronger_than_canonical	HNRNPH1_kept
+All sites	Decoys	5679	100.0	20.0	9.6	0.63954921641134	True
+All sites	Supported cryptics	16295	100.0	18.0	8.72	0.460632095734888	False
+Site MaxEnt >= 8	Decoys	4768	83.95844338792041	21.0	9.81	0.71875	True
+Site MaxEnt >= 8	Supported cryptics	10998	67.4930960417306	18.0	9.35	0.61620294599018	False
+Site MaxEnt >= 9	Decoys	3563	62.739918999823914	21.0	10.19	0.8077462812236879	True
+Site MaxEnt >= 9	Supported cryptics	7000	42.95796256520405	18.0	9.89	0.7302857142857143	False
+Site MaxEnt >= 10	Decoys	2200	38.73921465046663	22.0	10.52	0.8863636363636364	True
+Site MaxEnt >= 10	Supported cryptics	3418	20.975759435409636	18.0	10.45	0.8484493856056173	False

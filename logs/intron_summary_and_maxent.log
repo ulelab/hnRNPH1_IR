@@ -1,0 +1,44 @@
+== maxent chunks
+   phastCons470_mean_median
+                      <num>
+1:                0.0454471
+2:                0.0555073
+          site_class threshold     n median_tissues_psi10 hnrnph1_kept
+              <char>     <num> <int>                <num>       <lgcl>
+1: cryptic_supported         0 17721                   18        FALSE
+2: cryptic_supported         1 16734                   18        FALSE
+3: cryptic_supported         3 16599                   18        FALSE
+4: cryptic_supported         5 16079                   18        FALSE
+5:             decoy         0  6497                   20         TRUE
+6:             decoy         1  6443                   20         TRUE
+7:             decoy         3  6427                   20         TRUE
+8:             decoy         5  6360                   20         TRUE
+== knit intron_summary.Rmd
+Wed Sep 23 14:25:47 BST 2026
+Error in `[.data.table`:
+! Column 3 of result for group 3 is type 'double' but expecting type 'integer'. Column types must be consistent for each group.
+Backtrace:
+    ▆
+ 1. ├─data.table::rbindlist(...)
+ 2. └─base::lapply(...)
+ 3.   └─global FUN(X[[i]], ...)
+ 4.     ├─...[]
+ 5.     └─data.table:::`[.data.table`(...)
+
+Quitting from intron_summary.Rmd:180-219 [class-comparison]
+Execution halted
+Wed Sep 23 14:29:21 BST 2026
+== outputs
+    6443 results/decoys_final_maxent1.bed
+    6427 results/decoys_final_maxent3.bed
+    6360 results/decoys_final_maxent5.bed
+   16734 results/cryptics_supported_final_maxent1.bed
+   16599 results/cryptics_supported_final_maxent3.bed
+   16079 results/cryptics_supported_final_maxent5.bed
+  192966 results/intron_summary_table.tsv
+  261608 total
+ls: cannot access 'figures/intron_class_*.pdf': No such file or directory
+figures/decoy_vs_cryptic_class_comparison_maxent1.pdf
+figures/decoy_vs_cryptic_class_comparison_maxent3.pdf
+figures/decoy_vs_cryptic_class_comparison_maxent5.pdf
+DONE

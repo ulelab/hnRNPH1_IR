@@ -1,0 +1,36 @@
+Wed Sep 23 14:38:01 BST 2026
+Wed Sep 23 14:43:09 BST 2026
+== canonical MaxEnt in final table by strand
+          site_class strand     n median_canon frac_below0
+              <char> <char> <int>        <num>       <num>
+1: cryptic_supported      +  9082         8.95       0.009
+2: cryptic_supported      -  8639         8.94       0.009
+3:             decoy      +  3307         8.72       0.014
+4:             decoy      -  3190         8.71       0.020
+rows: 24218  HNRNPH1: 1 
+== maxent threshold counts
+site_class	threshold	n	median_tissues_psi10	hnrnph1_kept
+cryptic_supported	0	17721	18	FALSE
+cryptic_supported	1	16734	18	FALSE
+cryptic_supported	3	16599	18	FALSE
+cryptic_supported	5	16079	18	FALSE
+decoy	0	6497	20	TRUE
+decoy	1	6443	20	TRUE
+decoy	3	6427	20	TRUE
+decoy	5	6360	20	TRUE
+== notebook rerun
+notebook errors: []
+feature                            decoy_median  cryptic_median  cliffs_delta
+intron_gc                          0.419118      0.465986        -0.2788143281211418
+site_gc_49nt                       0.44898       0.489796        -0.17830978876257186
+MaxEnt_canonical                   8.72          8.95            -0.08243615834742979
+intron_length                      2899.0        3268.0          -0.07477795071639415
+decoy_distance_from_canonical_5ss  1234.0        1417.0          -0.06431555093378383
+psi_count_ge10_brain               3.0           3.0             0.061569204756047435
+psi_count_ge10                     20.0          18.0            0.06462751097017194
+phastCons100_mean                  0.0493569     0.0431331       0.08894905043879686
+phastCons470_mean                  0.0555073     0.0454471       0.11610362687568077
+SpliceAI_score                     0.192353      0.163785        0.17086823428039777
+MaxEnt_decoy                       9.49          8.72            0.2855032422103774
+Wed Sep 23 14:44:27 BST 2026
+DONE

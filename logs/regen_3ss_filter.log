@@ -1,0 +1,45 @@
+== [1] knit (Part 1 with stranded intron matching)
+Mon Sep 28 20:24:22 BST 2026
+KNIT COMPLETED 
+== [2] canonical 5'SS support intersect
+
+summary -> results/canonical_support_summary.tsv
+window_nt  spliceai_in  supported  pct   RBPNET  PRPF8   SmB    any_two_plus
+0          276014       192424     69.7  135902  119480  25279  80686
+== [3] knit (Parts 1-4)
+Mon Sep 28 20:29:49 BST 2026
+KNIT COMPLETED 
+  191902 results/cryptics_supported.bed
+    5689 results/decoys_final.bed
+   16295 results/cryptics_supported_final.bed
+   21974 results/intron_segments_for_phastcons.bed
+  235860 total
+== [4] bash features
+Mon Sep 28 20:35:07 BST 2026
+processing chromosomes
+phastCons100 ok 21974
+processing chromosomes
+phastCons470 ok 21974
+MaxEnt decoy ok 21974
+MaxEnt canonical ok 21974
+GC ok 21975
+== [5] final knit
+Mon Sep 28 20:38:01 BST 2026
+KNIT COMPLETED 
+Mon Sep 28 20:43:32 BST 2026
+2026-09-28 20:43 figures/decoy_vs_cryptic_class_comparison.pdf
+2026-09-28 20:43 figures/decoy_vs_cryptic_class_comparison_maxent10.pdf
+2026-09-28 20:43 figures/decoy_vs_cryptic_class_comparison_maxent8.pdf
+2026-09-28 20:43 figures/decoy_vs_cryptic_class_comparison_maxent9.pdf
+2026-03-30 19:51 figures/hnrnph1_figure1_ggmsa.pdf
+2026-09-23 11:30 figures/hnrnph1_max2_pos2_scatterplot.pdf
+2026-09-23 14:33 figures/intron_class_comparison.pdf
+2026-09-23 14:33 figures/intron_class_retention.pdf
+2026-09-28 20:43 figures/phastCons100_vs_all_tissue_psi.pdf
+2026-09-28 20:43 figures/phastCons100_vs_all_tissue_psi_cryptics_supported.pdf
+2026-09-28 20:43 figures/phastCons470_vs_all_tissue_psi.pdf
+2026-09-28 20:43 figures/phastCons470_vs_all_tissue_psi_cryptics_supported.pdf
+2026-09-28 20:43 figures/phastCons470_vs_brain_psi.pdf
+2026-09-28 20:43 figures/phastCons470_vs_mesc_ir_retention.pdf
+2026-09-28 20:43 results/decoy_intron_features_final.tsv
+CHAIN DONE

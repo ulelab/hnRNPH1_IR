@@ -44,11 +44,13 @@ echo "MaxEntScan 5'SS:  ${MAXENT_5}"
 echo "Output BED:       ${OUT_BED}"
 echo
 
-# 1) Build 9-mer 5'SS window BED (strand-aware; keep original BED untouched)
-#    + strand: start-2, end+6
-#    - strand: start-6, end+2
+# 1) Build 9-mer 5'SS window BED (3 exonic + 6 intronic bases, strand-aware).
+#    The input interval is the FIRST INTRONIC base of the canonical donor
+#    (1-based intron_start on +, intron_end on -), so:
+#    + strand: 0-based [D-4, D+5)  with D = 1-based first intronic base = $2+1
+#    - strand: 0-based [D-6, D+3)  with D = $3
 awk 'BEGIN{OFS="\t"} {
-  if ($6=="+")      {ss=$2; s=ss-4; e=ss+5}
+  if ($6=="+")      {ss=$2; s=ss-3; e=ss+6}
   else if ($6=="-"){ss=$3; s=ss-6; e=ss+3}
   else             {s=$2;   e=$3}
   if (s<0) s=0;

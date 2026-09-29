@@ -6,7 +6,7 @@
 
 #### The database of predicted decoy loci was generated as a BED file using the workflow described in `figures/decoy_splice_site_flowchart.pdf`.
 
-#### Briefly, all human intron coordinates were collected from Vast-DB `PSI_TABLE-hg38.tab.gz` as any EVENT with an ID beginning with `HsaIN`. These coordinates were fed in a strandwise fashion to bedtools getfasta, then SpliceAI to predict splice donor scores for every intronic nucleotide, using 400 nt exonic flanks for internal normalization by the canonical 5' splice site. Scores below 0.05 were filtered out (`data/Decoys/Splice_All.filtered.05min.bed`, 794,192 sites). Sites were restricted to protein-coding genes, sites within 50 nt of a canonical splice site were separated as an exonic set, and sites overlapping any annotated exon were removed, using `gencode.v49.annotation.gtf.gz` and GenomicRanges. The remaining deep-intronic sites were intersected against PRPF8 RBPnet predictions and PRPF8 and SmB CLIP peaks: sites with signal from any track form the decoy set (`decoys.bed`); sites with no signal whose intron's canonical 5' splice site carries signal from any track form the supported cryptic set (`cryptics_supported.bed`). Both sets were re-scored with SpliceAI over a local 49 nt window, filtered to a local donor score of at least 0.1, and cleared of annotated alternative 5' splice sites.
+#### Briefly, all human intron coordinates were collected from Vast-DB `PSI_TABLE-hg38.tab.gz` as any EVENT with an ID beginning with `HsaIN`. These coordinates were fed in a strandwise fashion to bedtools getfasta, then SpliceAI to predict splice donor scores for every intronic nucleotide, using 400 nt exonic flanks for internal normalization by the canonical 5' splice site. Scores below 0.05 were filtered out (`data/Decoys/Splice_All.filtered.05min.bed`, 794,192 sites). Sites were restricted to protein-coding genes, sites within 50 nt of a canonical splice site were separated as an exonic set, and sites overlapping any annotated exon were removed, using `gencode.v49.annotation.gtf.gz` and GenomicRanges. The remaining deep-intronic sites were intersected against PRPF8 RBPnet predictions and PRPF8 and SmB CLIP peaks: sites with signal from any track form the decoy set (`decoys.bed`); sites with no signal whose intron's canonical 5' splice site carries signal from any track form the supported cryptic set (`cryptics_supported.bed`). Both sets were re-scored with SpliceAI over a local 49 nt window, filtered to a local donor score of at least 0.1, cleared of annotated alternative 5' splice sites, and cleared of sites within 100 nt upstream of a canonical 3' splice site.
 
 ### Merged CLIP crosslink tracks
 
@@ -47,11 +47,12 @@ data/Decoys/deep_intronic_noexon_splice_sites.bed      289,640  BED6
                        |      cryptic -> Vast-DB intron -> canonical 5'SS window
                        |      -> intersect with RBPnet / PRPF8 / SmB peaks
                        v
-                     results/cryptics_supported.bed   191,904   canonical 5'SS with signal
+                     results/cryptics_supported.bed   191,902   canonical 5'SS with signal
   |  [5]  scripts/SpliceAI_Inference.py   local re-score of decoys.bed and cryptics_supported.bed
   v
   [6]  scripts/compile_decoy_intron_data.Rmd Parts 3-4   local SpliceAI >= 0.1 -> remove HsaALTD donors
-       -> results/decoys_final.bed (6,506), results/cryptics_supported_final.bed (17,721) -> feature table
+       -> remove sites <= 100 nt upstream of a 3'SS
+       -> results/decoys_final.bed (5,689), results/cryptics_supported_final.bed (16,295) -> feature table
 ```
 
 ### Step 1 - protein-coding base set
@@ -96,7 +97,7 @@ data/Decoys/deep_intronic_noexon_splice_sites.bed      289,640  BED6
 
 #### `$ mv results/canonical_support_w0.bed results/canonical_supported_sites.bed`
 
-#### 269,698 cryptic sites → 267,465 inside a Vast-DB intron → 267,309 with a canonical donor for that intron → 191,904 supported cryptics. By track at the donor: RBPnet 135,874, PRPF8 119,032, SmB 25,196.
+#### 269,698 cryptic sites → 267,465 inside a Vast-DB intron → 267,309 with a canonical donor for that intron → 191,902 supported cryptics. By track at the donor: RBPnet 135,872, PRPF8 119,032, SmB 25,196. Sites are matched only to introns on their own strand (strand taken from `FullCO`).
 
 #### `Canonical_splice_sites.bed` is built by `scripts/CreateCanonicalSpliceSiteBed.sh` from the central +/-5 nt of each `Wide_canonical_splice_sites.bed` window.
 
@@ -114,15 +115,17 @@ data/Decoys/deep_intronic_noexon_splice_sites.bed      289,640  BED6
 
 ### Step 6 - local-score filter and alternative 5' splice-site removal
 
-#### Part 3 of `scripts/compile_decoy_intron_data.Rmd` loads both re-scored files as one table with a `site_class` column (`decoy` / `cryptic_supported`) and applies the local SpliceAI >= 0.1 filter (`MIN_LOCAL_SPLICEAI`): 19,942 → 7,021 decoys and 191,904 → 18,808 supported cryptics. This threshold applies to the local 49 nt score and is not comparable to the 0.05 applied to the whole-intron inference.
+#### Part 3 of `scripts/compile_decoy_intron_data.Rmd` loads both re-scored files as one table with a `site_class` column (`decoy` / `cryptic_supported`) and applies the local SpliceAI >= 0.1 filter (`MIN_LOCAL_SPLICEAI`): 19,942 → 7,021 decoys and 191,902 → 18,808 supported cryptics. This threshold applies to the local 49 nt score and is not comparable to the 0.05 applied to the whole-intron inference.
 
-#### Annotated alternative 5' splice sites are then removed: any site whose position (BED start + 1) and strand match a donor of a Vast-DB `HsaALTD` (Alt5) event in `PSI_TABLE-hg38.tab.gz`, with every donor parsed from the event's `FullCO` field (133,342 unique donors). This removes 515 decoys and 1,087 supported cryptics. The final sets are `results/decoys_final.bed` (6,506) and `results/cryptics_supported_final.bed` (17,721).
+#### Annotated alternative 5' splice sites are then removed: any site whose position (BED start + 1) and strand match a donor of a Vast-DB `HsaALTD` (Alt5) event in `PSI_TABLE-hg38.tab.gz`, with every donor parsed from the event's `FullCO` field (133,342 unique donors). This removes 515 decoys and 1,087 supported cryptics.
+
+#### Sites 0–100 nt upstream of a canonical 3' splice site of any same-strand Vast-DB intron are removed next (`NEAR_3SS_NT`). This stretch holds the branch point and polypyrimidine tract, where SmB and PRPF8 crosslink as part of the spliceosome: within 31–90 nt of the 3' splice site, 66.5% of decoys were SmB-supported against 26.4% beyond 200 nt. It also holds `AG|GT` sites at the last intronic base, where the downstream exon begins with a donor-like `GT`. This removes 817 decoys and 1,426 supported cryptics. The final sets are `results/decoys_final.bed` (5,689) and `results/cryptics_supported_final.bed` (16,295).
 
 #### The HNRNPH1 alternative 5' splice site at chr5:179,623,595 (Vast-DB `HsaALTD0003092-2`) is not present in `Splice_All.filtered.05min.bed` and is therefore absent from both the exonic and intronic branches.
 
 ## Decoy Feature Table Generation
 
-#### Part 3 of `scripts/compile_decoy_intron_data.Rmd` overlaps the final decoy and supported cryptic sites with Vast-DB intron coordinates using GenomicRanges, integrating the unique identifier `EVENT` and intron retention PSI values in 145 cell and tissue types. The shortest overlapping intron is retained per site. Distance from the canonical 5' splice site is calculated with strandwise logic. Part 3 writes `results/decoy_intron_overlap_step1.tsv` and the BED files for the following steps, which run once on both classes together:
+#### Part 3 of `scripts/compile_decoy_intron_data.Rmd` overlaps the final decoy and supported cryptic sites with Vast-DB intron coordinates using GenomicRanges, integrating the unique identifier `EVENT` and intron retention PSI values in 145 cell and tissue types. The overlap is stranded, with intron strand taken from `FullCO`, and the shortest overlapping intron is retained per site. Distance from the canonical 5' splice site is calculated with strandwise logic. Part 3 writes `results/decoy_intron_overlap_step1.tsv` and the BED files for the following steps, which run once on both classes together:
 
 #### `$ bash scripts/extract_phastcons_scores.sh reference/hg38.phastCons100way.bw results/intron_segments_for_phastcons.bed > results/phastcons100_by_decoy.tsv`
 
@@ -136,11 +139,36 @@ data/Decoys/deep_intronic_noexon_splice_sites.bed      289,640  BED6
 
 #### MaxEntScan scores the strength of each site and of the canonical 5' splice site of its intron. phastCons 100-way and 470-way scores are averaged across the intron harboring each site. GC content is calculated for the intron and for the 49 nt window around the site. Part 4 reloads the step-1 table, merges these results by site ID, counts the tissues with PSI >= 10 (all tissues, and Brain tissues from `data/vastdb_Sample_Groups.csv`), adds mESC IRFinder retention for introns lifted to mm10, and writes the final feature table `results/decoy_intron_features_final.tsv`. Both classes have identical columns, with `site_class` separating them. `results/decoy_vs_cryptic_class_summary.tsv` gives n, median and interquartile range of each feature per class.
 
-##### Nine decoys have no overlapping Vast-DB intron and are dropped at the overlap step:
+#### Part 4 also redraws the class comparison with both classes filtered to a site MaxEntScan score of at least 8, 9 or 10 (`figures/decoy_vs_cryptic_class_comparison_maxent{8,9,10}.pdf`), with the counts in `results/maxent_threshold_counts.tsv`.
 
-##### "FCGR2A_161510691" "PRR36_7873710" "ZNF44_12276147" "RP13-152O15.5_64057209" "PBRM1_52679911" "CYP3A5_99665358" "PRAG1_8386528" "VAV2_133780190" "GCNA_71597874"
+##### Ten decoys have no overlapping same-strand Vast-DB intron and are dropped at the overlap step. Nine lie 164-339 nt outside their scored `HsaIN` intron, within the 400 nt inference flank but beyond a flanking exon shorter than 400 nt, and therefore in an adjacent intron that has no Vast-DB intron retention event. The tenth, `MSTO1_155610087`, lies only inside an intron of the antisense gene `RP11-29H23.4`:
+
+##### "FCGR2A_161510691" "PRR36_7873710" "ZNF44_12276147" "RP13-152O15.5_64057209" "PBRM1_52679911" "CYP3A5_99665358" "PRAG1_8386528" "VAV2_133780190" "GCNA_71597874" "MSTO1_155610087"
 
 ##### All sites in these genes are written to `results/dropped_overlap_genes_all_splicescores_decoys.bed` for inspection.
+
+## Recount Junction Support
+
+#### `scripts/query_recount_junctions.py` matches each final site to junctions in the hg38 Snaptron/Recount compilations `tcgav2`, `srav3h` and `gtexv2` (`junctions.sqlite` from `https://snaptron.cs.jhu.edu/data/<compilation>/`). Sites are loaded into an in-memory table attached to the read-only database and joined to the `intron` table on chromosome and strand, with either junction boundary within 5 bp of the site. All matching junctions are returned, annotated or not; a junction is typed `5ss` when its boundary at the site is the donor for the site's strand (junction start on `+`, junction end on `-`). `scripts/slurm_query_recount.sh` runs the three compilations as a SLURM array and downloads the databases when absent.
+
+#### `$ bash scripts/slurm_query_recount.sh`
+
+#### Outputs per compilation: `results/recount_<compilation>_junctions.tsv` (one row per site-junction pair with `snaptron_id`, boundary offsets, `annotated`, `samples_count`, `coverage_sum`) and `results/recount_<compilation>_summary.tsv` (one row per site: numbers of annotated and unannotated 5'SS junctions and their maximum sample and read support). Part 5 of `scripts/compile_decoy_intron_data.Rmd` reads the junction tables and counts a junction as using a site as its 5' splice site when the junction's donor boundary is the first intronic base after the site (junction start = site + 1 on `+`, junction end = site − 1 on `−`; 250,758 of the 270,878 junction rows with a donor-side boundary within ±5 bp) and it has at least 5 reads summed over the compilation's samples. Each site gets `recount_support`: `annotated` (an annotated junction uses the site as its donor), `unannotated_only`, or `no_junction`, plus the number of compilations supporting it and the sample and read counts of its best unannotated junction.
+
+| Site class | Annotated | Unannotated only | No junction |
+| --- | --- | --- | --- |
+| Decoys (5,679) | 534 (9.4%) | 4,879 (85.9%) | 266 (4.7%) |
+| Supported cryptics (16,295) | 936 (5.7%) | 13,223 (81.1%) | 2,136 (13.1%) |
+
+#### The HNRNPH1 decoy is used as a donor only in unannotated junctions, in all three compilations; its junction to the canonical intron-4 acceptor (1,175 nt) is found in 3,845 SRA samples (5,382 reads).
+
+## Intron Summary Table
+
+#### `scripts/intron_summary.Rmd` builds one row per Vast-DB `HsaIN` intron (192,965) from `PSI_TABLE-hg38.tab.gz` and marks the introns that hold decoys and supported cryptics from the final feature table, giving four intron classes: `none`, `decoy`, `cryptic` and `both`. Site IDs (`GENE_start`) and site counts per intron are carried over. Flanking exon coordinates are parsed from `FullCO`, and `bedtools nuc` gives the GC fraction of the intron and of the two flanking exons together; `gc_ratio` is intron GC divided by flanking-exon GC. Tissue counts with PSI >= 10 are computed for all 145 tissues and for the 26 Brain tissues. The genome FASTA path is the `fasta` parameter.
+
+#### `$ Rscript -e 'rmarkdown::render("scripts/intron_summary.Rmd", params = list(fasta = "<GRCh38.primary_assembly.genome.fa>"))'`
+
+#### Outputs: `results/intron_summary_table.tsv`, `results/intron_class_summary.tsv` (n, median and interquartile range of each feature per class), `figures/intron_class_comparison.pdf` and `figures/intron_class_retention.pdf`. Of the 192,965 introns, 5,430 hold decoys only, 14,377 supported cryptics only and 785 both; 172,373 hold neither.
 
 ## Figure 1 R Markdown (`scripts/hnRNPH1_figure1.rmd`)
 
