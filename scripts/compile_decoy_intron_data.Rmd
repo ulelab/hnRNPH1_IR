@@ -1209,6 +1209,82 @@ if (length(recount_files) == 0) {
 }
 ```
 
+## Donor usage: predicted sites vs Vast-DB alternative 5' splice sites
+
+Reads through each site used as a 5' splice site, summed over its junctions (exact donor boundary, junctions with at least `MIN_READS` reads), for the final decoys and supported cryptics and for every donor of the Vast-DB alternative 5' splice site events (`results/recount_altd_<compilation>_junctions.tsv`, from `scripts/make_altd_donor_beds.py` and `scripts/slurm_query_recount.sh` with `OUT_TAG=recount_altd`). Reference donors are each event's first-listed option; alternative donors are the others. Sites with no qualifying junction are left off the log axis; their share is noted in each panel.
+
+```{r recount-usage-distribution}
+altd_files <- Sys.glob(file.path(out_dir, "recount_altd_*_junctions.tsv"))
+site_files <- setdiff(Sys.glob(file.path(out_dir, "recount_*_junctions.tsv")), altd_files)
+if (length(altd_files) == 0 || length(site_files) == 0) {
+  cat("Note: Recount junction tables for the sites and/or the alternative 5' splice sites are missing - usage distribution skipped.\n")
+} else {
+  jcols <- c("compilation", "site_id", "site_class", "strand", "coverage_sum", "samples_count", "start_offset", "end_offset")
+  donor_use <- function(files) {
+    j <- rbindlist(lapply(files, fread, sep = "\t", select = jcols))
+    j <- j[fifelse(strand == "+", start_offset, -end_offset) == 1L & coverage_sum >= MIN_READS]
+    j[, .(donor_reads = sum(as.numeric(coverage_sum)), max_samples = max(samples_count)), by = .(compilation, site_id, site_class)]
+  }
+  use <- rbind(donor_use(site_files), donor_use(altd_files))
+  comps <- sort(unique(use$compilation))
+
+  # Every site, including those with no qualifying junction.
+  read_ids <- function(path, cls) {
+    b <- fread(path, sep = "\t", header = FALSE, select = c(2, 4))
+    data.table(site_id = paste0(b$V4, "_", b$V2), site_class = cls)
+  }
+  all_sites <- rbind(
+    merged[, .(site_id = decoyID, site_class)],
+    read_ids(file.path(out_dir, "altd_donors_reference.bed"), "altd_reference"),
+    read_ids(file.path(out_dir, "altd_donors_alternative.bed"), "altd_alternative")
+  )
+  grid <- all_sites[, .(compilation = comps), by = .(site_id, site_class)]
+  use <- merge(grid, use[, .(compilation, site_id, donor_reads, max_samples)], by = c("compilation", "site_id"), all.x = TRUE)
+  use[is.na(donor_reads), `:=`(donor_reads = 0, max_samples = 0L)]
+
+  grp_levels <- c("decoy", "cryptic_supported", "altd_alternative", "altd_reference")
+  grp_label <- c(decoy = "Decoys", cryptic_supported = "Supported cryptics",
+                 altd_alternative = "Vast-DB alternative 5'SS", altd_reference = "Vast-DB reference 5'SS")
+  grp_color <- c(decoy = "#B2182B", cryptic_supported = "#2166AC", altd_alternative = "#1B7837", altd_reference = "#7F7F7F")
+  use[, site_class := factor(site_class, levels = grp_levels)]
+
+  usage_summary <- use[, .(sites = .N, with_junction = mean(donor_reads > 0),
+                           median_reads_if_used = as.numeric(median(donor_reads[donor_reads > 0])),
+                           median_reads_all = as.numeric(median(donor_reads))), by = .(compilation, site_class)][order(compilation, site_class)]
+  print(usage_summary)
+  fwrite(usage_summary, file.path(out_dir, "recount_donor_usage_summary.tsv"), sep = "\t", quote = FALSE)
+
+  lab <- use[, .(pct_none = 100 * mean(donor_reads == 0)), by = .(compilation, site_class)]
+  note <- lab[order(site_class), .(note = paste0("No qualifying junction: ",
+                                                paste(sprintf("%s %.0f%%", grp_label[as.character(site_class)], pct_none), collapse = ", "))),
+              by = compilation]
+  pdat <- use[donor_reads > 0]
+  marks <- use[site_id %in% c("HNRNPH1_179620582", "HNRNPH1|HsaALTD0003092-2/5_179623594")]
+  marks[, what := fifelse(site_id == "HNRNPH1_179620582", "HNRNPH1 decoy", "HNRNPH1 alt 5'SS")]
+
+  p_use <- ggplot(pdat, aes(x = donor_reads, colour = site_class)) +
+    geom_density(aes(fill = site_class), alpha = 0.12, linewidth = 0.8, adjust = 1.2) +
+    geom_vline(data = marks[donor_reads > 0], aes(xintercept = donor_reads), linetype = "dashed", linewidth = 0.4) +
+    geom_text(data = marks[donor_reads > 0], aes(x = donor_reads, y = Inf, label = what), angle = 90,
+              vjust = -0.4, hjust = 1.1, size = 2.6, inherit.aes = FALSE) +
+    geom_text(data = note, aes(x = 1e9, y = Inf, label = note), hjust = 1, vjust = 1.6, size = 2.7, inherit.aes = FALSE) +
+    scale_x_log10(labels = scales::label_comma()) +
+    scale_colour_manual(values = grp_color, labels = grp_label, name = NULL) +
+    scale_fill_manual(values = grp_color, labels = grp_label, name = NULL) +
+    facet_wrap(~ compilation, ncol = 1, scales = "free_y") +
+    labs(x = "Reads through the site as a 5' splice site (sum over junctions, log scale)", y = "Density",
+         title = "Donor usage of predicted sites vs Vast-DB alternative and reference 5' splice sites") +
+    theme_bw() + theme(legend.position = "bottom")
+  print(p_use)
+  ggsave("../figures/recount_donor_usage_distribution.pdf", p_use, width = 9, height = 10)
+
+  cat("\nShare of sites with no qualifying junction (legend values):\n")
+  print(dcast(lab, site_class ~ compilation, value.var = "pct_none"))
+  cat("\nHNRNPH1 decoy and alternative 5'SS donor reads:\n")
+  print(dcast(marks, what ~ compilation, value.var = "donor_reads"))
+}
+```
+
 ```{r write-final-v3}
 fwrite(merged, final_tsv, sep = "\t", quote = FALSE)
 cat("Final table:", final_tsv, " rows:", nrow(merged), " (",

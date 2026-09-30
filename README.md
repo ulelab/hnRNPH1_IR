@@ -162,6 +162,12 @@ data/Decoys/deep_intronic_noexon_splice_sites.bed      289,640  BED6
 
 #### The HNRNPH1 decoy is used as a donor only in unannotated junctions, in all three compilations; its junction to the canonical intron-4 acceptor (1,175 nt) is found in 3,845 SRA samples (5,382 reads).
 
+#### For comparison with known alternative donors, `scripts/make_altd_donor_beds.py` writes every donor of the Vast-DB alternative 5' splice site events (56,386 events, 17,996 genes; 133,342 donors read from `FullCO`) to `results/altd_donors_reference.bed` (55,993 first-listed donors) and `results/altd_donors_alternative.bed` (77,349). These are queried in the same way, keeping junctions with at least 5 reads:
+
+#### `$ BEDS="altd_reference=$PWD/altd_donors_reference.bed altd_alternative=$PWD/altd_donors_alternative.bed" OUT_TAG=recount_altd MIN_READS=5 bash scripts/slurm_query_recount.sh`
+
+#### Part 5 compares donor usage (reads summed over each site's junctions at the exact donor boundary) across the four groups in `figures/recount_donor_usage_distribution.pdf`, with medians and shares in `results/recount_donor_usage_summary.tsv`.
+
 ## Intron Summary Table
 
 #### `scripts/intron_summary.Rmd` builds one row per Vast-DB `HsaIN` intron (192,965) from `PSI_TABLE-hg38.tab.gz` and marks the introns that hold decoys and supported cryptics from the final feature table, giving four intron classes: `none`, `decoy`, `cryptic` and `both`. Site IDs (`GENE_start`) and site counts per intron are carried over. Flanking exon coordinates are parsed from `FullCO`, and `bedtools nuc` gives the GC fraction of the intron and of the two flanking exons together; `gc_ratio` is intron GC divided by flanking-exon GC. Tissue counts with PSI >= 10 are computed for all 145 tissues and for the 26 Brain tissues. The genome FASTA path is the `fasta` parameter.

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Match final decoy / supported-cryptic sites to Recount (Snaptron) junctions.
 
-Loads one or more 10-column site BEDs (decoys_final.bed, cryptics_supported_final.bed)
-into an in-memory table attached to a read-only Snaptron junctions.sqlite, and reports
-every junction whose intron boundary lies within --flank-bp of a site, annotated or not.
+Loads one or more site BEDs (BED6 or wider; e.g. decoys_final.bed, cryptics_supported_final.bed, or the
+Vast-DB alternative-5'SS donor BEDs from make_altd_donor_beds.py) into an in-memory table attached to a
+read-only Snaptron junctions.sqlite, and reports every junction whose intron boundary lies within
+--flank-bp of a site and that has at least --min-reads reads, annotated or not. Rows are streamed to
+disk, so large site sets do not have to fit in memory.
 
 Two outputs:
   <out-prefix>_junctions.tsv   one row per (site, junction) pair
@@ -93,9 +95,9 @@ def build_query(optional):
         (i.end   - s.pos) AS end_offset
     FROM intron i CROSS JOIN locusdb.site s
     WHERE s.chrom = i.chrom AND s.strand = i.strand
+      AND i.coverage_sum >= :min_reads
       AND (s.pos BETWEEN i.start - :flank AND i.start + :flank
         OR s.pos BETWEEN i.end   - :flank AND i.end   + :flank)
-    ORDER BY s.site_id, i.samples_count DESC
     """.format(extra=extra)
 
 
@@ -125,6 +127,7 @@ def main():
     ap.add_argument("--bed", action="append", required=True, metavar="LABEL=PATH",
                     help="site BED with its class label; repeatable")
     ap.add_argument("--flank-bp", type=int, default=5, help="boundary tolerance in bp [5]")
+    ap.add_argument("--min-reads", type=int, default=1, help="minimum coverage_sum for a junction to be reported [1]")
     ap.add_argument("--out-prefix", required=True)
     a = ap.parse_args()
 
@@ -135,30 +138,31 @@ def main():
             ap.error("--bed expects LABEL=PATH, got {!r}".format(item))
         beds.append((label, path))
 
+    params = {"flank": a.flank_bp, "min_reads": a.min_reads}
+    junc_path = "{}_junctions.tsv".format(a.out_prefix)
+    per_site = defaultdict(list)   # 5'SS-type junctions per site, only the fields the summary needs
+    n_rows = 0
     conn = connect(a.db)
     try:
         optional = intron_columns(conn)
         n_sites = load_sites(conn, beds)
         q = build_query(optional)
-        for r in conn.execute("EXPLAIN QUERY PLAN " + q, {"flank": a.flank_bp}):
+        for r in conn.execute("EXPLAIN QUERY PLAN " + q, params):
             print("  plan:", r[-1])
-        rows = conn.execute(q, {"flank": a.flank_bp}).fetchall()
+        cur = conn.execute(q, params)
+        cols = [d[0] for d in cur.description]
+        with open(junc_path, "w") as fh:
+            w = csv.writer(fh, delimiter="\t", lineterminator="\n")
+            w.writerow(["compilation"] + cols + ["junction_type"])
+            for r in cur:
+                jt = junction_type(r, a.flank_bp)
+                w.writerow([a.compilation] + list(r) + [jt])
+                n_rows += 1
+                if jt in ("5ss", "both"):
+                    per_site[r["site_id"]].append({k: r[k] for k in ("annotated", "samples_count", "coverage_sum",
+                                                                    "start_offset", "end_offset", "snaptron_id")})
     finally:
         conn.close()
-
-    junc_path = "{}_junctions.tsv".format(a.out_prefix)
-    cols = list(rows[0].keys()) if rows else []
-    with open(junc_path, "w") as fh:
-        w = csv.writer(fh, delimiter="\t", lineterminator="\n")
-        w.writerow(["compilation"] + cols + ["junction_type"])
-        for r in rows:
-            w.writerow([a.compilation] + [r[c] for c in cols] + [junction_type(r, a.flank_bp)])
-
-    # Per-site summary over junctions that use the site as a 5' splice site.
-    per_site = defaultdict(list)
-    for r in rows:
-        if junction_type(r, a.flank_bp) in ("5ss", "both"):
-            per_site[r["site_id"]].append(r)
 
     summ_path = "{}_summary.tsv".format(a.out_prefix)
     conn = connect(a.db)  # site list again, so unmatched sites are written too
@@ -195,7 +199,8 @@ def main():
                 best["snaptron_id"] if best else "",
             ])
 
-    print("compilation {}: {} sites, {} (site, junction) rows within +/-{} bp".format(a.compilation, n_sites, len(rows), a.flank_bp))
+    print("compilation {}: {} sites, {} (site, junction) rows within +/-{} bp with >= {} reads".format(
+        a.compilation, n_sites, n_rows, a.flank_bp, a.min_reads))
     print("  sites with a junction using them as 5'SS: {}  (of which unannotated-only: {})".format(n_matched, n_unann))
     print("  wrote {} and {}".format(junc_path, summ_path))
 

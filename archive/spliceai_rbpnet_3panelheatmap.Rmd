@@ -1,0 +1,352 @@
+---
+title: "SpliceAI Validation Plots - Position and Score Analysis (v3.1)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width = 16, fig.height = 12)
+```
+
+## Load Libraries
+
+```{r libraries}
+library(data.table)
+library(pheatmap)
+library(viridis)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(GenomicRanges)
+```
+
+## Overlap Decoys with Conserved Canonical Splice Sites
+
+```{r overlap-decoys-with-splice-sites}
+decoys_bed <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/data/DecoysInConservedGenes50thpercentilev3.bed",
+  sep = "\t", header = FALSE, col.names = c("chr", "start", "end", "id", "score", "strand")
+)
+
+canonical_splice_sites_bed <- fread("/home/mikej10/advbfx/intronretention/Conserved_Canonical_Splicesites_MaxSpliceAI.bed",
+  sep = "\t", header = FALSE, col.names = c("chr", "start", "end", "gene", "score", "strand")
+)
+
+decoys_gr <- GRanges(
+  seqnames = decoys_bed$chr,
+  ranges = IRanges(start = decoys_bed$start, end = decoys_bed$end),
+  strand = decoys_bed$strand,
+  id = decoys_bed$id
+)
+
+canonical_gr <- GRanges(
+  seqnames = canonical_splice_sites_bed$chr,
+  ranges = IRanges(start = canonical_splice_sites_bed$start, end = canonical_splice_sites_bed$end),
+  strand = canonical_splice_sites_bed$strand
+)
+
+overlaps <- findOverlaps(decoys_gr, canonical_gr)
+overlapping_decoy_ids <- unique(decoys_gr[queryHits(overlaps)]$id)
+overlapping_decoys_bed <- decoys_bed[id %in% overlapping_decoy_ids]
+```
+
+## Save BED File for 470-Way Multiz Analysis
+
+```{r save-bed-v4}
+v4_bed_file <- "/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/data/DecoysInConservedGenesv4.bed"
+fwrite(overlapping_decoys_bed, file = v4_bed_file, sep = "\t", col.names = FALSE, quote = FALSE)
+```
+
+## Load and Parse Data
+
+```{r load-data}
+spliceai_data <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/splice_out_v3.1/all_spliceai_scores_v3.1.tsv", sep = "\t", header = TRUE)
+spliceai_data <- spliceai_data[decoyID %in% overlapping_decoy_ids]
+
+parse_score_format <- function(value) {
+  match_result <- str_match(value, "\\[([\\d.-]+)\\]\\[(\\d+)\\]\\[([\\d.-]+)\\]\\[(\\d+)\\]\\[([\\d.-]+)\\]")
+  if (is.na(match_result[1])) {
+    return(list(max1 = NA, pos1 = NA, max2 = NA, pos2 = NA, d = NA))
+  }
+  return(list(
+    max1 = as.numeric(match_result[2]),
+    pos1 = as.integer(match_result[3]),
+    max2 = as.numeric(match_result[4]),
+    pos2 = as.integer(match_result[5]),
+    d = as.numeric(match_result[6])
+  ))
+}
+
+decoy_ids <- spliceai_data$decoyID
+species_cols <- setdiff(names(spliceai_data), "decoyID")
+
+parsed_data_list <- list()
+for (species in species_cols) {
+  parsed_scores <- lapply(spliceai_data[[species]], parse_score_format)
+  species_data <- data.table(
+    decoyID = decoy_ids,
+    species = species,
+    max1 = sapply(parsed_scores, function(x) x$max1),
+    pos1 = sapply(parsed_scores, function(x) x$pos1),
+    max2 = sapply(parsed_scores, function(x) x$max2),
+    pos2 = sapply(parsed_scores, function(x) x$pos2),
+    d = sapply(parsed_scores, function(x) x$d)
+  )
+  parsed_data_list[[species]] <- species_data
+}
+
+all_data <- rbindlist(parsed_data_list)
+all_data_valid <- all_data[max1 != -1.0 & pos1 != -1 & max2 != -1.0 & pos2 != -1]
+```
+
+## Load and Parse RBPnet Data
+
+```{r load-rbpnet-data}
+rbpnet_all_data <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/rbpnet_v3/rbpnet_max_scores.tsv", sep = "\t", header = TRUE)
+setnames(rbpnet_all_data, "max_intronic_score", "max_intronic_rbpnet")
+```
+
+## Heatmap Setup
+
+```{r heatmap-setup}
+target_decoy <- "HNRNPH1_179620582"
+
+species_order_file <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/data/Newickspeciesorder.txt", header = FALSE, col.names = "tree_name")
+species_mapping <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/tree_to_clade_mapping.tsv", sep = "\t", header = TRUE)
+ordered_species <- merge(species_order_file, species_mapping, by = "tree_name", all.x = TRUE, sort = FALSE)
+ordered_species_ids <- ordered_species$species_id[!is.na(ordered_species$species_id)]
+species_id_to_common <- setNames(species_mapping$matched_common_name, species_mapping$species_id)
+
+create_custom_palette <- function(n_colors_per_break = 25) {
+  break1 <- colorRampPalette(c("#4B0082", "#00FFFF"))(n_colors_per_break)
+  break2 <- colorRampPalette(c("#00FFFF", "#006400"))(n_colors_per_break)
+  break3 <- colorRampPalette(c("#006400", "#FF6600"))(n_colors_per_break)
+  break4 <- colorRampPalette(c("#FF6600", "#FF1493"))(n_colors_per_break)
+  c("grey70", break1, break2, break3, break4)
+}
+
+custom_palette <- create_custom_palette(n_colors_per_break = 25)
+breaks <- c(
+  -1.5, -0.5,
+  seq(0, 0.1, length.out = 26)[-26],
+  seq(0.1, 0.3, length.out = 26)[-1],
+  seq(0.3, 0.7, length.out = 26)[-1],
+  seq(0.7, 1.0, length.out = 26)[-1]
+)
+```
+
+## Heatmap of max2 Values
+
+```{r heatmap-max2}
+max2_matrix_data <- all_data_valid %>%
+  select(decoyID, species, max2) %>%
+  pivot_wider(names_from = decoyID, values_from = max2)
+
+max2_matrix <- as.matrix(max2_matrix_data[, -1])
+rownames(max2_matrix) <- max2_matrix_data$species
+max2_matrix[is.na(max2_matrix)] <- -1
+
+available_species <- rownames(max2_matrix)
+ordered_available <- intersect(ordered_species_ids, available_species)
+other_species <- setdiff(available_species, ordered_available)
+final_species_order <- c(ordered_available, other_species)
+max2_matrix <- max2_matrix[final_species_order, , drop = FALSE]
+
+common_names <- ifelse(rownames(max2_matrix) %in% names(species_id_to_common),
+  species_id_to_common[rownames(max2_matrix)],
+  rownames(max2_matrix)
+)
+rownames(max2_matrix) <- common_names
+
+p_max2_temp <- pheatmap(max2_matrix, color = custom_palette, breaks = breaks,
+  cluster_rows = FALSE, cluster_cols = TRUE, show_rownames = FALSE,
+  show_colnames = FALSE, silent = TRUE)
+
+col_order <- colnames(max2_matrix)[p_max2_temp$tree_col$order]
+max2_matrix <- max2_matrix[, col_order, drop = FALSE]
+
+annotation_col_max2 <- data.frame(
+  HNRNPH1_target = ifelse(colnames(max2_matrix) == target_decoy, "Yes", "No"),
+  row.names = colnames(max2_matrix)
+)
+
+ann_colors <- list(HNRNPH1_target = c("Yes" = "red", "No" = "white"))
+
+pheatmap(max2_matrix, color = custom_palette, breaks = breaks,
+  cluster_rows = FALSE, cluster_cols = FALSE, show_rownames = TRUE,
+  show_colnames = FALSE, annotation_col = annotation_col_max2,
+  annotation_colors = ann_colors, annotation_legend = TRUE,
+  main = "Heatmap of max2 (Secondary SpliceAI Scores)",
+  fontsize_row = 8, fontsize_col = 6, border_color = NA, na_col = "grey70",
+  legend_breaks = c(-1, 0, 0.1, 0.3, 0.7, 1.0),
+  legend_labels = c("Missing", "0.0", "0.1", "0.3", "0.7", "1.0"))
+```
+
+## Heatmap of max1 Values
+
+```{r heatmap-max1}
+max1_matrix_data <- all_data_valid %>%
+  select(decoyID, species, max1) %>%
+  pivot_wider(names_from = decoyID, values_from = max1)
+
+max1_matrix <- as.matrix(max1_matrix_data[, -1])
+rownames(max1_matrix) <- max1_matrix_data$species
+max1_matrix[is.na(max1_matrix)] <- -1
+
+max1_matrix <- max1_matrix[final_species_order, , drop = FALSE]
+common_decoyIDs <- intersect(col_order, colnames(max1_matrix))
+max1_matrix <- max1_matrix[, common_decoyIDs, drop = FALSE]
+
+common_names_max1 <- ifelse(rownames(max1_matrix) %in% names(species_id_to_common),
+  species_id_to_common[rownames(max1_matrix)],
+  rownames(max1_matrix)
+)
+rownames(max1_matrix) <- common_names_max1
+
+annotation_col_max1 <- data.frame(
+  HNRNPH1_target = ifelse(colnames(max1_matrix) == target_decoy, "Yes", "No"),
+  row.names = colnames(max1_matrix)
+)
+
+pheatmap(max1_matrix, color = custom_palette, breaks = breaks,
+  cluster_rows = FALSE, cluster_cols = FALSE, show_rownames = TRUE,
+  show_colnames = FALSE, annotation_col = annotation_col_max1,
+  annotation_colors = ann_colors, annotation_legend = TRUE,
+  main = "Heatmap of max1 (Primary SpliceAI Scores)",
+  fontsize_row = 8, fontsize_col = 6, border_color = NA, na_col = "grey70",
+  legend_breaks = c(-1, 0, 0.1, 0.3, 0.7, 1.0),
+  legend_labels = c("Missing", "0.0", "0.1", "0.3", "0.7", "1.0"))
+```
+
+## Combined Heatmap Setup
+
+```{r combined-heatmap-setup}
+phylop_decoy_v3 <- fread("/home/mikej10/advbfx/intronretention/hnRNPH1_IR_MAF/results/phyloP/decoysv3/phyloP_decoy_v3_merged.tsv")
+setnames(phylop_decoy_v3, "MAF_file", "decoyID")
+
+phylop_filtered <- phylop_decoy_v3 %>%
+  filter(decoyID %in% common_decoyIDs) %>%
+  select(decoyID, fraction_sites_ge_300)
+
+phylop_annotation_full <- data.frame(decoyID = common_decoyIDs, stringsAsFactors = FALSE) %>%
+  left_join(phylop_filtered, by = "decoyID") %>%
+  mutate(fraction_sites_ge_300 = ifelse(is.na(fraction_sites_ge_300), 0, fraction_sites_ge_300))
+
+rownames(phylop_annotation_full) <- phylop_annotation_full$decoyID
+phylop_annotation_full$decoyID <- NULL
+
+max1_combined <- max1_matrix
+max2_combined <- max2_matrix[, common_decoyIDs, drop = FALSE]
+if (!identical(rownames(max1_combined), rownames(max2_combined))) {
+  max2_combined <- max2_combined[rownames(max1_combined), , drop = FALSE]
+}
+
+rbpnet_matrix_data <- rbpnet_all_data %>%
+  filter(decoyID %in% common_decoyIDs) %>%
+  select(decoyID, species, max_intronic_rbpnet) %>%
+  pivot_wider(names_from = decoyID, values_from = max_intronic_rbpnet)
+
+rbpnet_matrix <- as.matrix(rbpnet_matrix_data[, -1])
+rownames(rbpnet_matrix) <- rbpnet_matrix_data$species
+rbpnet_matrix[is.na(rbpnet_matrix)] <- -1
+
+missing_decoy_ids <- setdiff(common_decoyIDs, colnames(rbpnet_matrix))
+if (length(missing_decoy_ids) > 0) {
+  missing_matrix <- matrix(-1, nrow = nrow(rbpnet_matrix), ncol = length(missing_decoy_ids))
+  colnames(missing_matrix) <- missing_decoy_ids
+  rownames(missing_matrix) <- rownames(rbpnet_matrix)
+  rbpnet_matrix <- cbind(rbpnet_matrix, missing_matrix)
+}
+
+available_rbpnet_species <- intersect(final_species_order, rownames(rbpnet_matrix))
+rbpnet_matrix <- rbpnet_matrix[available_rbpnet_species, , drop = FALSE]
+
+common_names_rbpnet <- ifelse(rownames(rbpnet_matrix) %in% names(species_id_to_common),
+  species_id_to_common[rownames(rbpnet_matrix)],
+  rownames(rbpnet_matrix)
+)
+rownames(rbpnet_matrix) <- common_names_rbpnet
+
+missing_species <- setdiff(rownames(max1_combined), rownames(rbpnet_matrix))
+if (length(missing_species) > 0) {
+  missing_species_matrix <- matrix(-1, nrow = length(missing_species), ncol = ncol(rbpnet_matrix))
+  rownames(missing_species_matrix) <- missing_species
+  colnames(missing_species_matrix) <- colnames(rbpnet_matrix)
+  rbpnet_matrix <- rbind(rbpnet_matrix, missing_species_matrix)
+}
+
+rbpnet_matrix <- rbpnet_matrix[rownames(max1_combined), , drop = FALSE]
+rbpnet_matrix <- rbpnet_matrix[, intersect(common_decoyIDs, colnames(rbpnet_matrix)), drop = FALSE]
+
+decoy_max_scores <- all_data_valid %>%
+  filter(decoyID %in% common_decoyIDs) %>%
+  group_by(decoyID) %>%
+  summarise(max_max1 = max(max1, na.rm = TRUE), max_max2 = max(max2, na.rm = TRUE), .groups = "drop")
+
+decoy_max_rbpnet <- rbpnet_all_data %>%
+  filter(decoyID %in% common_decoyIDs, max_intronic_rbpnet != -1) %>%
+  group_by(decoyID) %>%
+  summarise(max_rbpnet = max(max_intronic_rbpnet, na.rm = TRUE), .groups = "drop")
+
+decoy_max_scores <- decoy_max_scores %>%
+  left_join(decoy_max_rbpnet, by = "decoyID") %>%
+  mutate(max_rbpnet = ifelse(is.na(max_rbpnet), -1, max_rbpnet))
+
+col_order_max1 <- decoy_max_scores %>% arrange(max_max1) %>% pull(decoyID)
+col_order_max2 <- decoy_max_scores %>% arrange(max_max2) %>% pull(decoyID)
+col_order_rbpnet <- decoy_max_scores %>% arrange(max_rbpnet) %>% pull(decoyID)
+
+max1_combined <- max1_combined[, col_order_max1, drop = FALSE]
+max2_combined <- max2_combined[, col_order_max2, drop = FALSE]
+rbpnet_combined <- rbpnet_matrix[, col_order_rbpnet, drop = FALSE]
+
+colnames(max1_combined) <- paste0(colnames(max1_combined), "_C")
+colnames(max2_combined) <- paste0(colnames(max2_combined), "_D")
+colnames(rbpnet_combined) <- paste0(colnames(rbpnet_combined), "_R")
+
+combined_matrix <- cbind(max1_combined, max2_combined, rbpnet_combined)
+
+type_annotation <- c(
+  rep("Canonical", ncol(max1_combined)),
+  rep("Decoy", ncol(max2_combined)),
+  rep("RBPnet", ncol(rbpnet_combined))
+)
+
+original_decoy_ids_left <- sub("_C$", "", colnames(max1_combined))
+original_decoy_ids_middle <- sub("_D$", "", colnames(max2_combined))
+original_decoy_ids_right <- sub("_R$", "", colnames(rbpnet_combined))
+hnrnph1_annotation_left <- ifelse(original_decoy_ids_left == target_decoy, "Yes", "No")
+hnrnph1_annotation_middle <- ifelse(original_decoy_ids_middle == target_decoy, "Yes", "No")
+hnrnph1_annotation_right <- ifelse(original_decoy_ids_right == target_decoy, "Yes", "No")
+hnrnph1_annotation_combined <- c(hnrnph1_annotation_left, hnrnph1_annotation_middle, hnrnph1_annotation_right)
+
+phylop_annotation_left <- phylop_annotation_full[original_decoy_ids_left, , drop = FALSE]
+phylop_annotation_middle <- phylop_annotation_full[original_decoy_ids_middle, , drop = FALSE]
+phylop_annotation_right <- phylop_annotation_full[original_decoy_ids_right, , drop = FALSE]
+phylop_annotation_combined <- rbind(phylop_annotation_left, phylop_annotation_middle, phylop_annotation_right)
+
+annotation_col_combined <- data.frame(
+  Type = type_annotation,
+  HNRNPH1_target = hnrnph1_annotation_combined,
+  fraction_sites_ge_300 = phylop_annotation_combined$fraction_sites_ge_300,
+  row.names = colnames(combined_matrix)
+)
+
+ann_colors_combined <- list(
+  Type = c("Canonical" = "#006400", "Decoy" = "#FA8072", "RBPnet" = "#4169E1"),
+  HNRNPH1_target = c("Yes" = "red", "No" = "white"),
+  fraction_sites_ge_300 = viridis(100)
+)
+```
+
+## Combined Heatmap
+
+```{r combined-heatmap}
+pheatmap(combined_matrix, color = custom_palette, breaks = breaks,
+  cluster_rows = FALSE, cluster_cols = FALSE, show_rownames = TRUE,
+  show_colnames = FALSE, annotation_col = annotation_col_combined,
+  annotation_colors = ann_colors_combined, annotation_legend = TRUE,
+  main = "Combined Heatmap: max1 (Canonical, left) | max2 (Decoy, middle) | RBPnet (right)",
+  fontsize_row = 8, fontsize_col = 6, border_color = NA, na_col = "grey70",
+  legend_breaks = c(-1, 0, 0.1, 0.3, 0.7, 1.0),
+  legend_labels = c("Missing", "0.0", "0.1", "0.3", "0.7", "1.0"),
+  gaps_col = c(ncol(max1_combined), ncol(max1_combined) + ncol(max2_combined)))
+```
